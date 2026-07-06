@@ -2,7 +2,7 @@
 docs/
 
 # Go
-/build/
+/build/bin/
 *.exe
 *.exe~
 *.dll
