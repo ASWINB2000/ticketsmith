@@ -1,26 +1,22 @@
-import {useState} from 'react';
-import logo from './assets/images/logo-universal.png';
-import './App.css';
-import {Greet} from "../wailsjs/go/main/App";
+import {useState} from 'react'
+import {NavBar, type ScreenKey} from '@/components/Layout/NavBar'
+import {Toaster} from '@/components/ui/sonner'
+import {Connect} from '@/screens/Connect'
+import {Generate} from '@/screens/Generate'
+import {Templates} from '@/screens/Templates'
+import {Logs} from '@/screens/Logs'
 
 function App() {
-    const [resultText, setResultText] = useState("Please enter your name below 👇");
-    const [name, setName] = useState('');
-    const updateName = (e: any) => setName(e.target.value);
-    const updateResultText = (result: string) => setResultText(result);
-
-    function greet() {
-        Greet(name).then(updateResultText);
-    }
+    const [screen, setScreen] = useState<ScreenKey>('generate')
 
     return (
-        <div id="App">
-            <img src={logo} id="logo" alt="logo"/>
-            <div id="result" className="result">{resultText}</div>
-            <div id="input" className="input-box">
-                <input id="name" className="input" onChange={updateName} autoComplete="off" name="input" type="text"/>
-                <button className="btn" onClick={greet}>Greet</button>
-            </div>
+        <div className="min-h-screen bg-background text-foreground">
+            <NavBar active={screen} onChange={setScreen} />
+            {screen === 'connect' && <Connect />}
+            {screen === 'generate' && <Generate />}
+            {screen === 'templates' && <Templates />}
+            {screen === 'logs' && <Logs />}
+            <Toaster />
         </div>
     )
 }
