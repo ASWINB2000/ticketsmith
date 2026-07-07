@@ -1,0 +1,46 @@
+# .github/workflows/generate-macos-cert.yml
+name: Generate macOS self-signed codesigning cert (run once)
+
+on:
+  workflow_dispatch:
+    inputs:
+      p12Password:
+        description: "Password to protect the generated .p12 file"
+        required: true
+
+jobs:
+  generate:
+    runs-on: macos-latest
+    steps:
+      - name: Generate self-signed codesigning identity
+        run: |
+          cat > codesign-ext.cnf <<'EOF'
+          [req]
+          distinguished_name = dn
+          x509_extensions = v3_ext
+          prompt = no
+
+          [dn]
+          CN = Aswin Biju (Self-Signed)
+
+          [v3_ext]
+          keyUsage = critical, digitalSignature
+          extendedKeyUsage = critical, codeSigning
+          basicConstraints = critical, CA:false
+          EOF
+
+          openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+            -days 1825 -nodes -config codesign-ext.cnf
+
+          openssl pkcs12 -export -out ticketsmith-macos-codesign.p12 \
+            -inkey key.pem -in cert.pem \
+            -password "pass:${{ github.event.inputs.p12Password }}"
+
+          base64 -i ticketsmith-macos-codesign.p12 -o ticketsmith-macos-codesign.p12.base64.txt
+
+      - name: Upload the cert as a downloadable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-codesign-cert
+          path: ticketsmith-macos-codesign.p12.base64.txt
+          retention-days: 1

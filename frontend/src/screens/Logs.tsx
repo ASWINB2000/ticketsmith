@@ -1,8 +1,9 @@
 import {useEffect, useState} from 'react'
 import {toast} from 'sonner'
-import {logs, connections} from '../../wailsjs/go/models'
+import {logs} from '../../wailsjs/go/models'
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 import {api} from '@/lib/api'
+import {useConnections} from '@/lib/connections'
 import {Card, CardContent} from '@/components/ui/card'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetBody} from '@/components/ui/sheet'
@@ -13,13 +14,12 @@ import {PageHeader} from '@/components/Layout/PageHeader'
 import {ScrollTextIcon} from 'lucide-react'
 
 type LogEntry = logs.LogEntry
-type Connection = connections.Connection
 
 const ANY = '__any__'
 
 export function Logs() {
     const [list, setList] = useState<LogEntry[]>([])
-    const [conns, setConns] = useState<Connection[]>([])
+    const {connections: conns} = useConnections()
     const [action, setAction] = useState(ANY)
     const [status, setStatus] = useState(ANY)
     const [connectionId, setConnectionId] = useState(ANY)
@@ -32,10 +32,6 @@ export function Logs() {
             connectionId: connectionId === ANY ? '' : connectionId,
         })).then(setList).catch((err) => toast.error(`Failed to load logs: ${err}`))
     }
-
-    useEffect(() => {
-        api.connections.list().then(setConns).catch(() => {})
-    }, [])
 
     useEffect(refresh, [action, status, connectionId])
 

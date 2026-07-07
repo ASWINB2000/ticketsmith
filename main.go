@@ -11,9 +11,15 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+// version is overridden at build time via -ldflags "-X main.version=1.2.3"
+// (see .github/workflows/release.yml). Defaults to a clearly-fake value for
+// `wails dev`/unversioned local builds so the updater never mistakes a dev
+// build for a real release needing an update.
+var version = "0.0.0-dev"
+
 func main() {
 	// Create an instance of the app structure
-	app := NewApp()
+	app := NewApp(version)
 
 	// Create application with options
 	err := wails.Run(&options.App{

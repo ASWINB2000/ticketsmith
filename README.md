@@ -14,6 +14,20 @@ Turn a few rough lines into a properly formatted ticket. Ticketsmith is a lightw
 
 Go backend · Wails v2 desktop shell · React + Tailwind CSS + shadcn/ui frontend · SQLite for local metadata · OS keychain for secrets.
 
+## Installation
+
+### macOS
+
+Ticketsmith's macOS build is signed with a self-signed certificate rather
+than a paid Apple Developer ID, so macOS Gatekeeper will show "Apple could
+not verify that this app is free of malware" the first time you open it.
+This is expected — to open it anyway:
+
+1. Right-click (or Control-click) `Ticketsmith.app` and choose **Open**.
+2. Click **Open** in the dialog that appears.
+
+You only need to do this once per machine.
+
 ## Status
 
 Early planning / pre-implementation. See [`docs/PLAN.md`](docs/PLAN.md) for the full architecture, data model, and build order.

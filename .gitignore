@@ -1,5 +1,6 @@
 # Local planning docs (not tracked in repo history)
 docs/
+CLAUDE.md
 
 # Go
 /build/bin/

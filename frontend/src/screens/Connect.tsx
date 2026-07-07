@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react'
 import {toast} from 'sonner'
 import {connections} from '../../wailsjs/go/models'
 import {api} from '@/lib/api'
+import {useConnections} from '@/lib/connections'
 import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
@@ -77,7 +78,7 @@ function TrackerKindPicker({value, onChange, disabled}: { value: string; onChang
 }
 
 export function Connect() {
-    const [list, setList] = useState<Connection[]>([])
+    const {connections: list, refresh} = useConnections()
     const [dialogOpen, setDialogOpen] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
     const [form, setForm] = useState<ConnectionFormState>(emptyForm)
@@ -93,12 +94,7 @@ export function Connect() {
     const [aiTesting, setAiTesting] = useState(false)
     const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
 
-    const refresh = () => {
-        api.connections.list().then(setList).catch((err) => toast.error(`Failed to load connections: ${err}`))
-    }
-
     useEffect(() => {
-        refresh()
         api.aiSettings.get().then((s) => {
             setAiForm({baseUrl: s.baseUrl, model: s.model, apiKey: ''})
             setAiHasKey(s.hasKey)

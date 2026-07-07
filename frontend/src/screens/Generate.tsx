@@ -3,6 +3,7 @@ import {toast} from 'sonner'
 import {connections, templates, tracker, ai} from '../../wailsjs/go/models'
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 import {api} from '@/lib/api'
+import {useConnections} from '@/lib/connections'
 import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
@@ -34,7 +35,7 @@ function sameTicket(a: EditableTicket, b: EditableTicket): boolean {
 }
 
 export function Generate({active}: { active: boolean }) {
-    const [conns, setConns] = useState<Connection[]>([])
+    const {connections: conns} = useConnections()
     const [tmpls, setTmpls] = useState<Template[]>([])
     const [connectionId, setConnectionId] = useState('')
     const [templateId, setTemplateId] = useState('')
@@ -69,7 +70,6 @@ export function Generate({active}: { active: boolean }) {
     const isEdited = !!ticket && !!generatedTicket && !sameTicket(ticket, generatedTicket)
 
     useEffect(() => {
-        api.connections.list().then(setConns).catch((err) => toast.error(`Failed to load connections: ${err}`))
         api.templates.list().then(setTmpls).catch((err) => toast.error(`Failed to load templates: ${err}`))
         api.generate.getDestination().then((d) => {
             if (d.connectionId && d.projectId) savedDestination.current = d

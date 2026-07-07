@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	goruntime "runtime"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
+	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"ticketsmith/internal/ai"
 	"ticketsmith/internal/ai/openaicompat"
@@ -20,14 +23,16 @@ import (
 	"ticketsmith/internal/templates"
 	"ticketsmith/internal/tracker"
 	"ticketsmith/internal/tracker/openproject"
+	"ticketsmith/internal/updater"
 
 	"database/sql"
 )
 
 // App struct is the single Wails-bound backend for Ticketsmith.
 type App struct {
-	ctx context.Context
-	db  *sql.DB
+	ctx     context.Context
+	db      *sql.DB
+	version string
 
 	connectionsStore *connections.Store
 	templatesStore   *templates.Store
@@ -55,8 +60,8 @@ type GenerateResult struct {
 }
 
 // NewApp creates a new App application struct
-func NewApp() *App {
-	return &App{}
+func NewApp(version string) *App {
+	return &App{version: version}
 }
 
 // startup is called when the app starts. The context is saved so we can call
@@ -85,6 +90,8 @@ func (a *App) startup(ctx context.Context) {
 	a.trackerCache = map[string]tracker.Tracker{}
 
 	a.seedDefaultConnection()
+
+	go a.checkForUpdates()
 }
 
 // shutdown closes the database cleanly on app exit.
@@ -92,6 +99,77 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.db != nil {
 		a.db.Close()
 	}
+}
+
+// checkForUpdates silently checks GitHub Releases for a newer version and,
+// if one is found, downloads it and self-restarts into it. Runs in the
+// background on every launch so it never blocks or delays startup, and is
+// invisible to the user unless an update is actually applied. This is the
+// cold-start path only — see CheckForUpdates/DownloadUpdate/InstallUpdate
+// below for the manual, confirmation-required path the frontend's
+// "Check for updates" button uses.
+func (a *App) checkForUpdates() {
+	applied, err := updater.CheckAndApply(a.ctx, a.updaterConfig())
+	if err != nil {
+		log.Printf("ticketsmith: update check failed: %v", err)
+		return
+	}
+	if applied {
+		wailsruntime.EventsEmit(a.ctx, "update:applying")
+		time.Sleep(2 * time.Second) // let the frontend show the toast before we exit
+		wailsruntime.Quit(a.ctx)
+	}
+}
+
+// Version returns the running app version, for display in the sidebar footer.
+func (a *App) Version() string {
+	return a.version
+}
+
+// CheckForUpdates is bound for the frontend's manual "Check for updates"
+// button. Unlike checkForUpdates, it never downloads or applies anything
+// on its own — it only reports whether an update exists so the frontend
+// can prompt the user first.
+func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
+	return updater.Check(a.ctx, a.updaterConfig())
+}
+
+// DownloadUpdate downloads the package described by info, emitting
+// "update:download-progress" events (fraction 0.0-1.0) as it goes. Called
+// only after the user confirms "Update now" in the frontend dialog.
+func (a *App) DownloadUpdate(info updater.UpdateInfo) (string, error) {
+	return updater.Download(a.ctx, a.updaterConfig(), &info, func(fraction float64) {
+		wailsruntime.EventsEmit(a.ctx, "update:download-progress", fraction)
+	})
+}
+
+// InstallUpdate applies a previously-downloaded package and restarts the
+// app. Called only after the user confirms "Install & Restart" in the
+// frontend's "ready to install" dialog.
+func (a *App) InstallUpdate(pkgPath string) error {
+	if err := updater.Install(pkgPath); err != nil {
+		return err
+	}
+	wailsruntime.EventsEmit(a.ctx, "update:applying")
+	time.Sleep(500 * time.Millisecond) // let the frontend show the toast before we exit
+	wailsruntime.Quit(a.ctx)
+	return nil
+}
+
+func (a *App) updaterConfig() updater.Config {
+	return updater.Config{
+		Owner:          "ASWINB2000",
+		Repo:           "ticketsmith",
+		Channel:        updateChannel(),
+		CurrentVersion: a.version,
+	}
+}
+
+func updateChannel() string {
+	if goruntime.GOOS == "darwin" {
+		return "osx"
+	}
+	return "win"
 }
 
 // seedDefaultConnection auto-creates a "Default" connection from .env
