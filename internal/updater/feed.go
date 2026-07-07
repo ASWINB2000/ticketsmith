@@ -106,6 +106,9 @@ func (f *FeedFetcher) FetchFeed(ctx context.Context, channel string) (*Feed, *gh
 // AssetDownloadURL finds the browser_download_url for a named asset within
 // a previously-fetched release.
 func AssetDownloadURL(rel *ghRelease, fileName string) (string, error) {
+	if rel == nil {
+		return "", fmt.Errorf("updater: no release provided for asset %q", fileName)
+	}
 	for _, a := range rel.Assets {
 		if a.Name == fileName {
 			return a.BrowserDownloadURL, nil

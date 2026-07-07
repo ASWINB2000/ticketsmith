@@ -24,49 +24,18 @@ type Config struct {
 	HTTPClient     *http.Client
 }
 
-// CheckAndApply checks GitHub Releases for a newer version than
-// cfg.CurrentVersion, and if found, downloads the full update package and
-// hands off to the bundled Velopack updater to apply it and restart the
-// app. If applied is true, the caller must exit immediately afterward so
-// Update.exe/UpdateMac can replace the "current" directory. Used only for
-// the silent cold-start path (Task 2); the manual "Check for updates"
-// button uses Check/Download/Install below instead so it can prompt the
-// user before applying anything.
-func CheckAndApply(ctx context.Context, cfg Config) (applied bool, err error) {
-	client := httpClient(cfg)
-	fetcher := &FeedFetcher{HTTPClient: client, Owner: cfg.Owner, Repo: cfg.Repo}
-	feed, rel, err := fetcher.FetchFeed(ctx, cfg.Channel)
-	if err != nil {
-		return false, err
-	}
-
-	best := latestFullAsset(feed, cfg.CurrentVersion)
-	if best == nil {
-		return false, nil // already up to date
-	}
-
-	downloadURL, err := AssetDownloadURL(rel, best.FileName)
-	if err != nil {
-		return false, err
-	}
-	pkgPath, err := downloadToTemp(ctx, client, downloadURL, *best, nil)
-	if err != nil {
-		return false, err
-	}
-	if err := Install(pkgPath); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 // UpdateInfo describes an available update surfaced to the user before
-// they choose to download it.
+// they choose to download it. Asset and Release must stay exported even
+// though they're internal plumbing: this struct round-trips through the
+// Wails JS<->Go boundary (returned by Check, then passed back into
+// Download), and encoding/json silently drops unexported fields, which
+// would leave Download with a nil Release on the way back from the frontend.
 type UpdateInfo struct {
 	Version      string
 	ReleaseNotes string // raw markdown from the GitHub release body
 
-	asset   Asset
-	release *ghRelease
+	Asset   Asset
+	Release *ghRelease
 }
 
 // Check looks for a newer "Full" release on cfg.Channel without
@@ -83,7 +52,7 @@ func Check(ctx context.Context, cfg Config) (*UpdateInfo, error) {
 	if best == nil {
 		return nil, nil
 	}
-	return &UpdateInfo{Version: best.Version, ReleaseNotes: rel.Body, asset: *best, release: rel}, nil
+	return &UpdateInfo{Version: best.Version, ReleaseNotes: rel.Body, Asset: *best, Release: rel}, nil
 }
 
 // ProgressFunc is called periodically during Download with the fraction
@@ -97,11 +66,11 @@ type ProgressFunc func(fraction float64)
 // application and a truncated/corrupted download must never be applied.
 func Download(ctx context.Context, cfg Config, info *UpdateInfo, onProgress ProgressFunc) (string, error) {
 	client := httpClient(cfg)
-	downloadURL, err := AssetDownloadURL(info.release, info.asset.FileName)
+	downloadURL, err := AssetDownloadURL(info.Release, info.Asset.FileName)
 	if err != nil {
 		return "", err
 	}
-	return downloadToTemp(ctx, client, downloadURL, info.asset, onProgress)
+	return downloadToTemp(ctx, client, downloadURL, info.Asset, onProgress)
 }
 
 // Install hands the downloaded package at pkgPath to the bundled Velopack

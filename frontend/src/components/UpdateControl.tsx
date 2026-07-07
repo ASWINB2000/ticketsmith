@@ -25,9 +25,17 @@ export function UpdateControl() {
     const [pkgPath, setPkgPath] = useState('')
 
     useEffect(() => {
-        return EventsOn('update:applying', () => {
+        const offApplying = EventsOn('update:applying', () => {
             toast.info('Installing update — restarting in a moment...')
         })
+        const offAvailable = EventsOn('update:available', (found: updater.UpdateInfo) => {
+            setInfo(found)
+            setPhase((p) => (p === 'idle' ? 'found' : p))
+        })
+        return () => {
+            offApplying()
+            offAvailable()
+        }
     }, [])
 
     async function handleCheck() {

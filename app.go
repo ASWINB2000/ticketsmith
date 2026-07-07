@@ -91,7 +91,7 @@ func (a *App) startup(ctx context.Context) {
 
 	a.seedDefaultConnection()
 
-	go a.checkForUpdates()
+	go a.checkForUpdatesOnStartup()
 }
 
 // shutdown closes the database cleanly on app exit.
@@ -101,23 +101,20 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 }
 
-// checkForUpdates silently checks GitHub Releases for a newer version and,
-// if one is found, downloads it and self-restarts into it. Runs in the
-// background on every launch so it never blocks or delays startup, and is
-// invisible to the user unless an update is actually applied. This is the
-// cold-start path only — see CheckForUpdates/DownloadUpdate/InstallUpdate
-// below for the manual, confirmation-required path the frontend's
-// "Check for updates" button uses.
-func (a *App) checkForUpdates() {
-	applied, err := updater.CheckAndApply(a.ctx, a.updaterConfig())
+// checkForUpdatesOnStartup checks GitHub Releases for a newer version in the
+// background on every launch. It never downloads or applies anything on its
+// own — if it finds an update, it pushes an "update:available" event so the
+// frontend can show the same confirmation dialog the manual "Check for
+// updates" button uses (see CheckForUpdates below). Silent if already up to
+// date or if the check fails.
+func (a *App) checkForUpdatesOnStartup() {
+	info, err := updater.Check(a.ctx, a.updaterConfig())
 	if err != nil {
 		log.Printf("ticketsmith: update check failed: %v", err)
 		return
 	}
-	if applied {
-		wailsruntime.EventsEmit(a.ctx, "update:applying")
-		time.Sleep(2 * time.Second) // let the frontend show the toast before we exit
-		wailsruntime.Quit(a.ctx)
+	if info != nil {
+		wailsruntime.EventsEmit(a.ctx, "update:available", info)
 	}
 }
 
@@ -127,9 +124,8 @@ func (a *App) Version() string {
 }
 
 // CheckForUpdates is bound for the frontend's manual "Check for updates"
-// button. Unlike checkForUpdates, it never downloads or applies anything
-// on its own — it only reports whether an update exists so the frontend
-// can prompt the user first.
+// button — it only reports whether an update exists so the frontend can
+// prompt the user first.
 func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
 	return updater.Check(a.ctx, a.updaterConfig())
 }
