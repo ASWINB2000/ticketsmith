@@ -3,12 +3,14 @@ import {toast} from 'sonner'
 import {logs, connections} from '../../wailsjs/go/models'
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 import {api} from '@/lib/api'
-import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/components/ui/card'
+import {Card, CardContent} from '@/components/ui/card'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
-import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog'
+import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetBody} from '@/components/ui/sheet'
 import {DataTable, type DataTableColumn} from '@/components/DataTable'
 import {StatusBadge} from '@/components/StatusBadge'
 import {FormField} from '@/components/FormField'
+import {PageHeader} from '@/components/Layout/PageHeader'
+import {ScrollTextIcon} from 'lucide-react'
 
 type LogEntry = logs.LogEntry
 type Connection = connections.Connection
@@ -62,12 +64,10 @@ export function Logs() {
     ]
 
     return (
-        <div className="grid gap-4 p-4">
+        <div className="flex flex-col">
+            <PageHeader icon={ScrollTextIcon} title="Logs" description="Full audit trail of every generate/create action." />
+            <div className="grid gap-4 p-8">
             <Card>
-                <CardHeader>
-                    <CardTitle>Logs</CardTitle>
-                    <CardDescription>Full audit trail of every generate/create action.</CardDescription>
-                </CardHeader>
                 <CardContent className="grid gap-4">
                     <div className="grid grid-cols-3 gap-4">
                         <FormField label="Action">
@@ -122,35 +122,38 @@ export function Logs() {
                 </CardContent>
             </Card>
 
-            <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
-                <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                        <DialogTitle>Log entry — {selected?.action}</DialogTitle>
-                    </DialogHeader>
-                    {selected && (
-                        <div className="grid gap-4 text-sm">
-                            <div>
-                                <div className="mb-1 font-medium">Raw input</div>
-                                <pre className="max-h-40 overflow-auto rounded-lg bg-muted p-2 whitespace-pre-wrap">{selected.rawInput || '—'}</pre>
-                            </div>
-                            <div>
-                                <div className="mb-1 font-medium">Generated content</div>
-                                <pre className="max-h-40 overflow-auto rounded-lg bg-muted p-2 whitespace-pre-wrap">{selected.generatedContent || '—'}</pre>
-                            </div>
-                            <div>
-                                <div className="mb-1 font-medium">Final content</div>
-                                <pre className="max-h-40 overflow-auto rounded-lg bg-muted p-2 whitespace-pre-wrap">{selected.finalContent || '—'}</pre>
-                            </div>
-                            {selected.errorMessage && (
+            <Sheet open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
+                <SheetContent>
+                    <SheetHeader>
+                        <SheetTitle>Log entry — {selected?.action}</SheetTitle>
+                    </SheetHeader>
+                    <SheetBody>
+                        {selected && (
+                            <div className="grid gap-4 text-sm">
                                 <div>
-                                    <div className="mb-1 font-medium text-destructive">Error</div>
-                                    <pre className="max-h-40 overflow-auto rounded-lg bg-destructive/10 p-2 whitespace-pre-wrap text-destructive">{selected.errorMessage}</pre>
+                                    <div className="mb-1 font-medium">Raw input</div>
+                                    <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{selected.rawInput || '—'}</pre>
                                 </div>
-                            )}
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
+                                <div>
+                                    <div className="mb-1 font-medium">Generated content</div>
+                                    <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{selected.generatedContent || '—'}</pre>
+                                </div>
+                                <div>
+                                    <div className="mb-1 font-medium">Final content</div>
+                                    <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{selected.finalContent || '—'}</pre>
+                                </div>
+                                {selected.errorMessage && (
+                                    <div>
+                                        <div className="mb-1 font-medium text-destructive">Error</div>
+                                        <pre className="max-h-64 overflow-auto rounded-lg bg-destructive/10 p-2 font-mono text-xs whitespace-pre-wrap text-destructive">{selected.errorMessage}</pre>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </SheetBody>
+                </SheetContent>
+            </Sheet>
+            </div>
         </div>
     )
 }

@@ -1,5 +1,5 @@
 import {useState} from 'react'
-import {NavBar, type ScreenKey} from '@/components/Layout/NavBar'
+import {Sidebar, type ScreenKey} from '@/components/Layout/Sidebar'
 import {Toaster} from '@/components/ui/sonner'
 import {Connect} from '@/screens/Connect'
 import {Generate} from '@/screens/Generate'
@@ -10,12 +10,22 @@ function App() {
     const [screen, setScreen] = useState<ScreenKey>('generate')
 
     return (
-        <div className="min-h-screen bg-background text-foreground">
-            <NavBar active={screen} onChange={setScreen} />
-            {screen === 'connect' && <Connect />}
-            {screen === 'generate' && <Generate />}
-            {screen === 'templates' && <Templates />}
-            {screen === 'logs' && <Logs />}
+        <div className="flex h-screen bg-background text-foreground">
+            <Sidebar active={screen} onChange={setScreen} />
+            <main className="flex-1 overflow-y-auto">
+                {/* Generate stays mounted (just hidden) so switching tabs never wipes
+                    its in-progress state — configured destination, notes, generated
+                    preview. The other screens are cheap to reload and stay
+                    conditionally-mounted so any open Sheet on them still closes
+                    on navigation instead of floating over the next screen (Sheets
+                    render via a portal, so hiding an ancestor alone wouldn't hide them). */}
+                <div className={screen === 'generate' ? 'contents' : 'hidden'}>
+                    <Generate active={screen === 'generate'} />
+                </div>
+                {screen === 'connect' && <Connect />}
+                {screen === 'templates' && <Templates />}
+                {screen === 'logs' && <Logs />}
+            </main>
             <Toaster />
         </div>
     )

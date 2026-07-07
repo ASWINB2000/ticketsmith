@@ -25,12 +25,20 @@ type User struct {
 	Name string `json:"name"`
 }
 
+// FieldValue is one template extraction field's value, carrying its display
+// label so trackers can render a human-readable heading instead of the raw
+// field name. Order matters: it follows the template's declared field order.
+type FieldValue struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
 type TicketInput struct {
-	Subject     string            `json:"subject"`
-	Description string            `json:"description"`
-	Fields      map[string]string `json:"fields,omitempty"`
-	ParentID    string            `json:"parentId,omitempty"`
-	AssigneeID  string            `json:"assigneeId,omitempty"`
+	Subject     string       `json:"subject"`
+	Description string       `json:"description"`
+	Fields      []FieldValue `json:"fields,omitempty"`
+	ParentID    string       `json:"parentId,omitempty"`
+	AssigneeID  string       `json:"assigneeId,omitempty"`
 }
 
 type Ticket struct {

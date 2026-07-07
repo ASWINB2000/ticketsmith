@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"ticketsmith/internal/ai"
@@ -32,6 +33,65 @@ func New(baseURL, apiKey, model string) *Client {
 		model:   model,
 		http:    &http.Client{},
 	}
+}
+
+type modelListResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// ListModels fetches the available model IDs from an OpenAI-compatible
+// endpoint's GET /models. Not all self-hosted compatible servers implement
+// this, so callers should treat failure as "not supported" rather than fatal.
+func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
+	baseURL = strings.TrimRight(baseURL, "/")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("ai: build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ai: request models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ai: read response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := string(body)
+		var apiErr apiErrorBody
+		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
+			msg = apiErr.Error.Message
+		}
+		return nil, fmt.Errorf("ai: models: %s (status %d)", msg, resp.StatusCode)
+	}
+
+	var parsed modelListResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil, fmt.Errorf("ai: parse models response: %w", err)
+	}
+
+	ids := make([]string, 0, len(parsed.Data))
+	for _, m := range parsed.Data {
+		ids = append(ids, m.ID)
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// Ping validates that the client's base URL and API key are usable, without
+// spending a completion token — it hits the same /models endpoint as
+// ListModels and only checks that the call succeeds.
+func (c *Client) Ping(ctx context.Context) error {
+	_, err := ListModels(ctx, c.baseURL, c.apiKey)
+	return err
 }
 
 type chatMessage struct {

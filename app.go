@@ -15,6 +15,7 @@ import (
 	"ticketsmith/internal/connections"
 	"ticketsmith/internal/db"
 	"ticketsmith/internal/logs"
+	"ticketsmith/internal/prefs"
 	"ticketsmith/internal/secrets"
 	"ticketsmith/internal/templates"
 	"ticketsmith/internal/tracker"
@@ -32,6 +33,7 @@ type App struct {
 	templatesStore   *templates.Store
 	logsStore        *logs.Store
 	aiConfigStore    *ai.ConfigStore
+	prefsStore       *prefs.Store
 
 	trackerMu    sync.Mutex
 	trackerCache map[string]tracker.Tracker
@@ -79,6 +81,7 @@ func (a *App) startup(ctx context.Context) {
 	a.templatesStore = templates.NewStore(sqlDB)
 	a.logsStore = logs.NewStore(sqlDB)
 	a.aiConfigStore = ai.NewConfigStore(sqlDB)
+	a.prefsStore = prefs.NewStore(sqlDB)
 	a.trackerCache = map[string]tracker.Tracker{}
 
 	a.seedDefaultConnection()
@@ -243,6 +246,46 @@ func (a *App) SaveAISettings(baseURL, model, apiKey string) error {
 	return a.aiConfigStore.Save(a.ctx, baseURL, model, apiKey)
 }
 
+// resolveAIKey returns apiKey if non-empty, otherwise the currently-saved
+// key — so callers can fetch models / test a connection without retyping a
+// key that's already stored in the keychain.
+func (a *App) resolveAIKey(apiKey string) (string, error) {
+	if apiKey != "" {
+		return apiKey, nil
+	}
+	cfg, err := a.aiConfigStore.Get(a.ctx)
+	if err != nil {
+		return "", err
+	}
+	if cfg.KeyringKey == "" {
+		return "", fmt.Errorf("no API key saved yet — enter one first")
+	}
+	return secrets.Get(cfg.KeyringKey)
+}
+
+// ListAIModels fetches available model IDs from an OpenAI-compatible
+// endpoint. If apiKey is blank, the currently-saved key is used.
+func (a *App) ListAIModels(baseURL, apiKey string) ([]string, error) {
+	key, err := a.resolveAIKey(apiKey)
+	if err != nil {
+		return nil, err
+	}
+	return openaicompat.ListModels(a.ctx, baseURL, key)
+}
+
+// TestAISettings verifies the given (or partially-saved) AI provider settings
+// actually work, without spending a completion token.
+func (a *App) TestAISettings(baseURL, model, apiKey string) error {
+	key, err := a.resolveAIKey(apiKey)
+	if err != nil {
+		return err
+	}
+	if err := openaicompat.New(baseURL, key, model).Ping(a.ctx); err != nil {
+		return fmt.Errorf("connection test failed: %w", err)
+	}
+	return nil
+}
+
 // ----- Templates screen -----
 
 func (a *App) ListTemplates() ([]templates.Template, error) {
@@ -266,6 +309,18 @@ func (a *App) DeleteTemplate(id string) error {
 }
 
 // ----- Generate screen -----
+
+// GetGenerateDestination returns the last connection/project the user
+// configured on the Generate screen, so it can be restored across restarts.
+func (a *App) GetGenerateDestination() (prefs.GenerateDestination, error) {
+	return a.prefsStore.GetGenerateDestination(a.ctx)
+}
+
+// SaveGenerateDestination remembers the connection/project the user just
+// configured on the Generate screen.
+func (a *App) SaveGenerateDestination(connectionID, projectID string) error {
+	return a.prefsStore.SaveGenerateDestination(a.ctx, connectionID, projectID)
+}
 
 // GenerateTicket runs AI generation and writes an audit log row (even on
 // failure). connectionID is recorded on the log entry so Logs can filter by
@@ -312,6 +367,51 @@ func (a *App) GenerateTicket(connectionID, templateID, rawInput string) (Generat
 	return GenerateResult{LogID: entry.ID, Ticket: ticket}, nil
 }
 
+// orderedFieldValues resolves each extraction field's display label and
+// declared order from the template recorded on the log entry created during
+// generation. Fields no longer present on that template (e.g. it was edited
+// or deleted since generation) are still included, using the raw field name
+// as a fallback label, appended after the ones the template still declares.
+func (a *App) orderedFieldValues(logID string, fields map[string]string) ([]tracker.FieldValue, error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	entry, err := a.logsStore.Get(a.ctx, logID)
+	if err != nil {
+		return nil, fmt.Errorf("app: get log entry: %w", err)
+	}
+
+	out := make([]tracker.FieldValue, 0, len(fields))
+	seen := make(map[string]bool, len(fields))
+
+	if entry.TemplateID != "" {
+		if tmpl, err := a.templatesStore.Get(a.ctx, entry.TemplateID); err == nil {
+			for _, f := range tmpl.FieldsSchema {
+				v, ok := fields[f.Name]
+				if !ok {
+					continue
+				}
+				label := f.Label
+				if label == "" {
+					label = f.Name
+				}
+				out = append(out, tracker.FieldValue{Label: label, Value: v})
+				seen[f.Name] = true
+			}
+		}
+	}
+
+	for name, v := range fields {
+		if seen[name] {
+			continue
+		}
+		out = append(out, tracker.FieldValue{Label: name, Value: v})
+	}
+
+	return out, nil
+}
+
 // CreateTicket submits the (possibly user-edited) structured ticket to the
 // tracker and mutates the same log row in place with the final result.
 func (a *App) CreateTicket(logID, connectionID, projectID, typeID string, ticket ai.StructuredTicket, parentID, assigneeID string) (tracker.Ticket, error) {
@@ -320,10 +420,15 @@ func (a *App) CreateTicket(logID, connectionID, projectID, typeID string, ticket
 		return tracker.Ticket{}, err
 	}
 
+	fields, err := a.orderedFieldValues(logID, ticket.Fields)
+	if err != nil {
+		return tracker.Ticket{}, err
+	}
+
 	input := tracker.TicketInput{
 		Subject:     ticket.Subject,
 		Description: ticket.Description,
-		Fields:      ticket.Fields,
+		Fields:      fields,
 		ParentID:    parentID,
 		AssigneeID:  assigneeID,
 	}

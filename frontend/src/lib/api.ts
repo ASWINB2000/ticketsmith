@@ -20,6 +20,8 @@ export const api = {
     aiSettings: {
         get: Go.GetAISettings,
         save: Go.SaveAISettings,
+        listModels: Go.ListAIModels,
+        test: Go.TestAISettings,
     },
     templates: {
         list: Go.ListTemplates,
@@ -31,6 +33,8 @@ export const api = {
     generate: {
         run: Go.GenerateTicket,
         create: Go.CreateTicket,
+        getDestination: Go.GetGenerateDestination,
+        saveDestination: Go.SaveGenerateDestination,
     },
     logs: {
         list: Go.ListLogs,

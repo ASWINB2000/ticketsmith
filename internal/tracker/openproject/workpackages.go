@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -43,21 +42,16 @@ type workPackageResponse struct {
 }
 
 // CreateTicket creates a work package. Template fields are appended to the
-// description as markdown sections (v1 simplification — real per-type custom
-// field mapping needs schema discovery not covered by this adapter yet).
+// description as markdown sections, in the template's declared field order
+// (v1 simplification — real per-type custom field mapping needs schema
+// discovery not covered by this adapter yet).
 func (c *Client) CreateTicket(ctx context.Context, projectID, typeID string, input tracker.TicketInput) (tracker.Ticket, error) {
 	description := input.Description
 	if len(input.Fields) > 0 {
-		names := make([]string, 0, len(input.Fields))
-		for name := range input.Fields {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-
 		var b strings.Builder
 		b.WriteString(description)
-		for _, name := range names {
-			fmt.Fprintf(&b, "\n\n## %s\n%s", name, input.Fields[name])
+		for _, f := range input.Fields {
+			fmt.Fprintf(&b, "\n\n## %s\n%s", f.Label, f.Value)
 		}
 		description = b.String()
 	}

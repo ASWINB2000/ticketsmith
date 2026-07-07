@@ -3,6 +3,7 @@ import {Input} from '@/components/ui/input'
 import {Button} from '@/components/ui/button'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Label} from '@/components/ui/label'
+import {InfoTooltip} from '@/components/InfoTooltip'
 import {Trash2Icon, PlusIcon} from 'lucide-react'
 
 type Field = templates.Field
@@ -29,7 +30,14 @@ export function JsonFieldsEditor({fields, onChange}: JsonFieldsEditorProps) {
 
     return (
         <div className="grid gap-3">
-            <Label>Extraction fields</Label>
+            <Label className="inline-flex w-fit items-center gap-1.5">
+                Extraction fields
+                <InfoTooltip>
+                    Specific pieces of information the AI should pull out of your notes — beyond the subject and
+                    description — like "steps to reproduce" or "acceptance criteria". Each one becomes its own
+                    editable field in the preview before you submit.
+                </InfoTooltip>
+            </Label>
             {fields.map((field, index) => (
                 <div key={index} className="grid grid-cols-[1fr_1fr_auto_auto] items-end gap-2 rounded-lg border p-2">
                     <div className="grid gap-1">

@@ -9,5 +9,10 @@
   "author": {
     "name": "Aswin Biju",
     "email": "aswinbijux@gmail.com"
+  },
+  "info": {
+    "companyName": "Aswin Biju",
+    "productName": "TicketSmith",
+    "copyright": "Copyright (c) 2026 Aswin Biju"
   }
 }

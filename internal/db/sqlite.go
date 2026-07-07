@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS ai_settings (
   keyring_key TEXT NOT NULL DEFAULT '',
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS generate_prefs (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  connection_id TEXT NOT NULL DEFAULT '',
+  project_id TEXT NOT NULL DEFAULT '',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // DefaultPath returns the OS-appropriate path to the Ticketsmith SQLite

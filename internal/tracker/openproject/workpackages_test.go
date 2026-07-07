@@ -29,7 +29,7 @@ func TestCreateTicketBuildsExpectedBody(t *testing.T) {
 	ticket, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
 		Subject:     "Something broke",
 		Description: "It broke badly.",
-		Fields:      map[string]string{"Steps to reproduce": "Click the button"},
+		Fields:      []tracker.FieldValue{{Label: "Steps to reproduce", Value: "Click the button"}},
 		ParentID:    "10",
 		AssigneeID:  "7",
 	})
@@ -61,6 +61,43 @@ func TestCreateTicketBuildsExpectedBody(t *testing.T) {
 	}
 	if captured.Links.Assignee == nil || captured.Links.Assignee.Href != "/api/v3/users/7" {
 		t.Errorf("Links.Assignee = %+v", captured.Links.Assignee)
+	}
+}
+
+func TestCreateTicketPreservesFieldOrder(t *testing.T) {
+	var captured createWorkPackageRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	_, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
+		Subject:     "Ordered",
+		Description: "Summary.",
+		Fields: []tracker.FieldValue{
+			{Label: "Test Data", Value: "url + creds"},
+			{Label: "Steps to Reproduce", Value: "1. Do a thing"},
+			{Label: "Expected Result", Value: "It works"},
+			{Label: "Actual Result", Value: "It doesn't"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	raw := captured.Description.Raw
+	testDataIdx := strings.Index(raw, "## Test Data")
+	stepsIdx := strings.Index(raw, "## Steps to Reproduce")
+	expectedIdx := strings.Index(raw, "## Expected Result")
+	actualIdx := strings.Index(raw, "## Actual Result")
+	if testDataIdx == -1 || stepsIdx == -1 || expectedIdx == -1 || actualIdx == -1 {
+		t.Fatalf("missing expected headings in Description.Raw = %q", raw)
+	}
+	if !(testDataIdx < stepsIdx && stepsIdx < expectedIdx && expectedIdx < actualIdx) {
+		t.Errorf("fields not in declared order, Description.Raw = %q", raw)
 	}
 }
 
