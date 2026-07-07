@@ -40,7 +40,7 @@ jobs:
 
       - name: Decode signing certificate
         shell: bash
-        run: echo "${{ secrets.WINDOWS_CERT_PFX_BASE64 }}" | base64 --decode > cert.pfx
+        run: echo "${{ secrets.WINDOWS_CERT_PFX_BASE64 }}" | base64 --decode > "$GITHUB_WORKSPACE/cert.pfx"
 
       - name: Pack and sign
         shell: bash
@@ -54,7 +54,8 @@ jobs:
             --packAuthors "Aswin Biju" \
             --icon build/windows/icon.ico \
             --delta None \
-            --signParams "/f cert.pfx /p ${{ secrets.WINDOWS_CERT_PASSWORD }} /fd sha256 /tr http://timestamp.digicert.com /td sha256"
+            --verbose \
+            --signParams "/f $GITHUB_WORKSPACE/cert.pfx /p ${{ secrets.WINDOWS_CERT_PASSWORD }} /fd sha256 /tr http://timestamp.digicert.com /td sha256"
 
       - name: Upload to GitHub Releases
         run: |
