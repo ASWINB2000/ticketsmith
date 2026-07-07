@@ -4,6 +4,7 @@ import {toast} from 'sonner'
 import {cn} from '@/lib/utils'
 import {Button} from '@/components/ui/button'
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from '@/components/ui/dialog'
+import {ReleaseNotes} from '@/components/ReleaseNotes'
 import {EventsOn} from '../../wailsjs/runtime/runtime'
 import {CheckForUpdates, DownloadUpdate, InstallUpdate} from '../../wailsjs/go/main/App'
 import type {updater} from '../../wailsjs/go/models'
@@ -23,6 +24,7 @@ export function UpdateControl() {
     const [info, setInfo] = useState<updater.UpdateInfo | null>(null)
     const [progress, setProgress] = useState(0)
     const [pkgPath, setPkgPath] = useState('')
+    const [installing, setInstalling] = useState(false)
 
     useEffect(() => {
         const offApplying = EventsOn('update:applying', () => {
@@ -73,7 +75,15 @@ export function UpdateControl() {
     }
 
     async function handleInstall() {
-        await InstallUpdate(pkgPath)
+        setInstalling(true)
+        try {
+            await InstallUpdate(pkgPath)
+        } catch (err) {
+            // Expected in `wails dev` — Velopack's Update.exe only exists next
+            // to a real installed copy, not a dev build. Works in a packaged install.
+            toast.error(`Install failed: ${err}`)
+            setInstalling(false)
+        }
     }
 
     const busy = phase === 'checking' || phase === 'downloading'
@@ -91,11 +101,22 @@ export function UpdateControl() {
             </button>
 
             <Dialog open={phase === 'found'} onOpenChange={(open) => !open && setPhase('idle')}>
-                <DialogContent>
+                <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Update available — v{info?.Version}</DialogTitle>
+                        <DialogTitle className="flex items-center gap-2">
+                            Update available
+                            <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                                v{info?.Version}
+                            </span>
+                        </DialogTitle>
                     </DialogHeader>
-                    <p className="whitespace-pre-wrap text-sm text-muted-foreground">{info?.ReleaseNotes}</p>
+                    {info?.ReleaseNotes ? (
+                        <div className="max-h-72 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+                            <ReleaseNotes markdown={info.ReleaseNotes} />
+                        </div>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">No release notes were provided for this version.</p>
+                    )}
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setPhase('idle')}>Not now</Button>
                         <Button onClick={handleUpdateNow}>Update now</Button>
@@ -112,8 +133,10 @@ export function UpdateControl() {
                         Restarting will close any unsaved work in progress.
                     </p>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setPhase('idle')}>Later</Button>
-                        <Button onClick={handleInstall}>Install &amp; Restart</Button>
+                        <Button variant="outline" onClick={() => setPhase('idle')} disabled={installing}>Later</Button>
+                        <Button onClick={handleInstall} disabled={installing}>
+                            {installing ? 'Restarting…' : 'Install & Restart'}
+                        </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

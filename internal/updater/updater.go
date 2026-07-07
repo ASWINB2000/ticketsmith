@@ -134,6 +134,20 @@ func (p *progressReader) Read(b []byte) (int, error) {
 }
 
 func downloadToTemp(ctx context.Context, client *http.Client, url string, asset Asset, onProgress ProgressFunc) (string, error) {
+	dst := filepath.Join(os.TempDir(), asset.FileName)
+
+	// Reuse an already-downloaded copy if one exists and its checksum still
+	// matches — e.g. the user checked, downloaded, then clicked "Later" and
+	// is now clicking "Update now" again. The destination path is stable
+	// per version (os.TempDir()/<versioned filename>), so a prior download
+	// naturally lands here again without any extra bookkeeping.
+	if asset.SHA1 != "" && fileMatchesSHA1(dst, asset.SHA1) {
+		if onProgress != nil {
+			onProgress(1.0)
+		}
+		return dst, nil
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("updater: build download request: %w", err)
@@ -147,7 +161,6 @@ func downloadToTemp(ctx context.Context, client *http.Client, url string, asset 
 		return "", fmt.Errorf("updater: download failed: status %d", resp.StatusCode)
 	}
 
-	dst := filepath.Join(os.TempDir(), asset.FileName)
 	f, err := os.Create(dst)
 	if err != nil {
 		return "", fmt.Errorf("updater: create temp package file: %w", err)
@@ -173,4 +186,19 @@ func downloadToTemp(ctx context.Context, client *http.Client, url string, asset 
 	}
 
 	return dst, nil
+}
+
+// fileMatchesSHA1 reports whether the file at path exists and its SHA1
+// matches expected, without holding the whole file in memory.
+func fileMatchesSHA1(path, expected string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	hasher := sha1.New()
+	if _, err := io.Copy(hasher, f); err != nil {
+		return false
+	}
+	return strings.EqualFold(hex.EncodeToString(hasher.Sum(nil)), expected)
 }

@@ -60,3 +60,23 @@ jobs:
       - name: Upload to GitHub Releases
         run: |
           vpk upload github --repoUrl https://github.com/${{ github.repository }} --token ${{ secrets.GITHUB_TOKEN }} --publish --merge --channel win --tag ${{ github.ref_name }} --releaseName "TicketSmith ${{ github.ref_name }}"
+
+      - name: Auto-generate release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # vpk upload github leaves the release body empty (Velopack has no
+        # auto-notes feature — its own --releaseNotes flag just points to a
+        # markdown file you'd have to hand-write). "gh release create
+        # --generate-notes" would do this at creation time, but vpk already
+        # created the release, so we hit the same underlying REST endpoint
+        # directly and apply the result with "release edit" instead. This
+        # compiles a "what changed since the previous tag" summary from
+        # commits, which is what the in-app update dialog then shows to
+        # users via the release's "body" field.
+        run: |
+          gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            --method POST \
+            --raw-field tag_name="${{ github.ref_name }}" \
+            --jq .body > notes.md
+          gh release edit ${{ github.ref_name }} --notes-file notes.md

@@ -26,6 +26,10 @@ func main() {
 		Title:  "TicketSmith",
 		Width:  1024,
 		Height: 768,
+		// Kept hidden until the frontend calls WindowReady (once React has
+		// mounted its default screen) so the window never shows a stale
+		// WebView2 frame or blank flash before the first real paint.
+		StartHidden: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

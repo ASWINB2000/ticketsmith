@@ -1,7 +1,8 @@
-import {useState} from 'react'
+import {useEffect, useState} from 'react'
 import {Sidebar, type ScreenKey} from '@/components/Layout/Sidebar'
 import {Toaster} from '@/components/ui/sonner'
 import {ConnectionsProvider} from '@/lib/connections'
+import {api} from '@/lib/api'
 import {Connect} from '@/screens/Connect'
 import {Generate} from '@/screens/Generate'
 import {Templates} from '@/screens/Templates'
@@ -9,6 +10,12 @@ import {Logs} from '@/screens/Logs'
 
 function App() {
     const [screen, setScreen] = useState<ScreenKey>('generate')
+
+    // The native window starts hidden (see main.go) so it never shows a
+    // blank/stale frame before this first render lands; reveal it now.
+    useEffect(() => {
+        api.windowReady()
+    }, [])
 
     return (
         <ConnectionsProvider>

@@ -90,6 +90,7 @@ func (a *App) startup(ctx context.Context) {
 	a.trackerCache = map[string]tracker.Tracker{}
 
 	a.seedDefaultConnection()
+	a.seedDefaultTemplates()
 
 	go a.checkForUpdatesOnStartup()
 }
@@ -99,6 +100,14 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.db != nil {
 		a.db.Close()
 	}
+}
+
+// WindowReady is called once by the frontend after its first render, to
+// reveal the window (started hidden via StartHidden in main.go). This avoids
+// showing a blank or stale WebView2 frame while the bundle loads and React
+// mounts its default screen.
+func (a *App) WindowReady() {
+	wailsruntime.WindowShow(a.ctx)
 }
 
 // checkForUpdatesOnStartup checks GitHub Releases for a newer version in the
@@ -184,6 +193,88 @@ func (a *App) seedDefaultConnection() {
 	if _, err := a.connectionsStore.Create(a.ctx, "Default", "openproject", baseURL, token); err != nil {
 		log.Printf("ticketsmith: seed default connection: %v", err)
 	}
+}
+
+// seedDefaultTemplates ensures each starter template in defaultTemplates
+// exists by name, creating whichever ones are missing. Runs on every
+// startup (cheap: one List query) so a preset the user hasn't touched keeps
+// showing up even after a schema change adds a new one, but any template
+// whose name is already taken (including a user's own edited copy) is left
+// alone.
+func (a *App) seedDefaultTemplates() {
+	existing, err := a.templatesStore.List(a.ctx)
+	if err != nil {
+		return
+	}
+
+	byName := make(map[string]bool, len(existing))
+	for _, t := range existing {
+		byName[t.Name] = true
+	}
+
+	for _, t := range defaultTemplates {
+		if byName[t.Name] {
+			continue
+		}
+		if _, err := a.templatesStore.Create(a.ctx, t); err != nil {
+			log.Printf("ticketsmith: seed default templates: %v", err)
+		}
+	}
+}
+
+var defaultTemplates = []templates.Template{
+	{
+		Name:            "User Story",
+		TrackerTypeName: "User story",
+		FieldsSchema: []templates.Field{
+			{Name: "precondition", Label: "Pre-Condition", Type: "textarea"},
+			{Name: "synopsis", Label: "Synopsis", Type: "textarea"},
+			{Name: "acceptanceCriteria", Label: "Acceptance Criteria", Type: "textarea"},
+		},
+		AIInstructions: "Extract a user story from the raw input. Write a short, " +
+			"descriptive subject (e.g. \"Managing Products\"). The description should " +
+			"open with the story in \"As a <role>, I should be able to <capability> so " +
+			"that <benefit>\" form, followed by the detailed requirements/behavior as a " +
+			"bulleted or numbered breakdown. Fill in Pre-Condition with what must already " +
+			"be true for the story to apply (e.g. required signup/login state), Synopsis " +
+			"with a one- or two-sentence restatement of the story's goal, and Acceptance " +
+			"Criteria with the concrete, testable conditions that confirm the story is " +
+			"done. Leave a field blank rather than guessing if the input doesn't cover it.",
+	},
+	{
+		Name:            "Bug",
+		TrackerTypeName: "Bug",
+		FieldsSchema: []templates.Field{
+			{Name: "testData", Label: "Test Data", Type: "textarea"},
+			{Name: "stepsToReproduce", Label: "Steps to Reproduce", Type: "textarea"},
+			{Name: "expectedResult", Label: "Expected Result", Type: "textarea"},
+			{Name: "actualResult", Label: "Actual Result", Type: "textarea"},
+		},
+		AIInstructions: "Extract a clear, reproducible bug report from the raw input. " +
+			"Write a concise subject naming the defect and the affected area (e.g. " +
+			"\"Archived Count Not Displayed in Dashboard Summary Cards\"). The " +
+			"description should briefly explain what's wrong and where. Fill in Test " +
+			"Data with any affected component/data/module details called out in the " +
+			"input, Steps to Reproduce as a numbered list, and Expected Result / Actual " +
+			"Result as short, contrasting statements. Leave a field blank rather than " +
+			"guessing if the input doesn't cover it.",
+	},
+	{
+		Name:            "Task",
+		TrackerTypeName: "Task",
+		FieldsSchema: []templates.Field{
+			{Name: "scope", Label: "Scope", Type: "textarea"},
+			{Name: "expectedBehavior", Label: "Expected Behavior", Type: "textarea"},
+		},
+		AIInstructions: "Extract a clear, actionable engineering task from the raw " +
+			"input. Write a concise subject describing the work to be done (e.g. " +
+			"\"Product Browsing & Discovery UI Implementation - WEB\"). The description " +
+			"should summarize the feature/module and its functionality. Fill in Scope " +
+			"with the module(s) and functionality boundaries covered by the task, and " +
+			"Expected Behavior with what the system should do once the task is complete, " +
+			"as a bulleted breakdown when the input lists multiple behaviors. Leave a " +
+			"field blank rather than guessing if the input doesn't cover it.",
+	},
 }
 
 // trackerFor returns a cached (or newly built) Tracker for a connection.
