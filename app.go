@@ -111,11 +111,15 @@ func (a *App) WindowReady() {
 }
 
 // checkForUpdatesOnStartup checks GitHub Releases for a newer version in the
-// background on every launch. It never downloads or applies anything on its
-// own — if it finds an update, it pushes an "update:available" event so the
-// frontend can show the same confirmation dialog the manual "Check for
-// updates" button uses (see CheckForUpdates below). Silent if already up to
-// date or if the check fails.
+// background on every launch. It never downloads, applies, or pops any
+// dialog on its own — a blocking "update available" prompt on every launch
+// until the user acts on it would be exactly the kind of nag a single-user
+// utility shouldn't inflict. If it finds an update, it just pushes an
+// "update:available" event so the frontend can flip its "Check for updates"
+// button into an "Update available" state (badge, no interruption). The
+// user re-checks whenever they click it — see CheckForUpdates below — so
+// what they actually see is never a stale snapshot of this signal. Silent
+// if already up to date or if the check fails.
 func (a *App) checkForUpdatesOnStartup() {
 	info, err := updater.Check(a.ctx, a.updaterConfig())
 	if err != nil {
@@ -123,7 +127,7 @@ func (a *App) checkForUpdatesOnStartup() {
 		return
 	}
 	if info != nil {
-		wailsruntime.EventsEmit(a.ctx, "update:available", info)
+		wailsruntime.EventsEmit(a.ctx, "update:available")
 	}
 }
 

@@ -25,14 +25,20 @@ export function UpdateControl() {
     const [progress, setProgress] = useState(0)
     const [pkgPath, setPkgPath] = useState('')
     const [installing, setInstalling] = useState(false)
+    // Set when the silent startup check finds something. Startup never pops
+    // a dialog on its own (that'd nag on every launch until you act on it) —
+    // it just flips the button to say "Update available" with a dot. You
+    // click it whenever you want; that always does a fresh check rather
+    // than trusting this possibly-stale signal, so the dialog you actually
+    // see is never out of date.
+    const [pendingUpdate, setPendingUpdate] = useState(false)
 
     useEffect(() => {
         const offApplying = EventsOn('update:applying', () => {
             toast.info('Installing update — restarting in a moment...')
         })
-        const offAvailable = EventsOn('update:available', (found: updater.UpdateInfo) => {
-            setInfo(found)
-            setPhase((p) => (p === 'idle' ? 'found' : p))
+        const offAvailable = EventsOn('update:available', () => {
+            setPendingUpdate(true)
         })
         return () => {
             offApplying()
@@ -41,6 +47,7 @@ export function UpdateControl() {
     }, [])
 
     async function handleCheck() {
+        setPendingUpdate(false)
         setPhase('checking')
         try {
             const result = await CheckForUpdates()
@@ -87,16 +94,30 @@ export function UpdateControl() {
     }
 
     const busy = phase === 'checking' || phase === 'downloading'
-    const label = phase === 'downloading' ? `Downloading… ${Math.round(progress * 100)}%` : LABEL[phase]
+    const label = phase === 'downloading'
+        ? `Downloading… ${Math.round(progress * 100)}%`
+        : phase === 'idle' && pendingUpdate
+            ? 'Update available'
+            : LABEL[phase]
 
     return (
         <>
             <button
                 onClick={handleCheck}
                 disabled={busy}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-sidebar-foreground/60 outline-none transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-60"
+                className={cn(
+                    'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-60',
+                    phase === 'idle' && pendingUpdate
+                        ? 'text-primary hover:text-primary'
+                        : 'text-sidebar-foreground/60 hover:text-sidebar-foreground',
+                )}
             >
-                <RefreshCwIcon className={cn('size-3.5', busy && 'animate-spin')} />
+                <span className="relative flex shrink-0">
+                    <RefreshCwIcon className={cn('size-3.5', busy && 'animate-spin')} />
+                    {phase === 'idle' && pendingUpdate && (
+                        <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-sidebar" />
+                    )}
+                </span>
                 {label}
             </button>
 
