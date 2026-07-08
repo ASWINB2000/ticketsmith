@@ -32,6 +32,7 @@ type ghAsset struct {
 type ghRelease struct {
 	TagName string    `json:"tag_name"`
 	Body    string    `json:"body"` // markdown release notes, as written when the GitHub release was published
+	HTMLURL string    `json:"html_url"`
 	Assets  []ghAsset `json:"assets"`
 }
 

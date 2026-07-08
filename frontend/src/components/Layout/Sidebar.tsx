@@ -3,6 +3,7 @@ import {cn} from '@/lib/utils'
 import {Wand2Icon, LayoutTemplateIcon, Plug2Icon, ScrollTextIcon, CircleHelpIcon} from 'lucide-react'
 import logo from '@/assets/images/logo-universal.png'
 import {UpdateControl} from '@/components/UpdateControl'
+import {ReleaseNotesButton} from '@/components/ReleaseNotesButton'
 import {Version} from '../../../wailsjs/go/main/App'
 
 export type ScreenKey = 'connect' | 'generate' | 'templates' | 'logs' | 'help'
@@ -33,7 +34,7 @@ export function Sidebar({active, onChange}: SidebarProps) {
                 <img src={logo} alt="TicketSmith" className="size-7 rounded-lg shadow-sm" />
                 <div className="flex flex-col">
                     <span className="font-heading text-sm font-semibold tracking-tight">TicketSmith</span>
-                    <span className="text-[10px] font-medium tabular-nums text-sidebar-foreground/45">v{version}</span>
+                    <ReleaseNotesButton version={version} />
                 </div>
             </div>
 

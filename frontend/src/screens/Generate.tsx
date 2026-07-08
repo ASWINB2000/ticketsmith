@@ -90,6 +90,12 @@ export function Generate({active}: { active: boolean }) {
         if (!active) setConfigOpen(false)
     }, [active])
 
+    // Templates are otherwise only fetched once on mount, so refresh them whenever
+    // this tab becomes active again to pick up edits made on the Templates screen.
+    useEffect(() => {
+        if (active) api.templates.list().then(setTmpls).catch((err) => toast.error(`Failed to load templates: ${err}`))
+    }, [active])
+
     useEffect(() => {
         // Clear the previous connection's data immediately so stale projects/types
         // never linger while (or after) the new connection's fetch is in flight.

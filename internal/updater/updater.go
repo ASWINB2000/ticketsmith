@@ -55,6 +55,46 @@ func Check(ctx context.Context, cfg Config) (*UpdateInfo, error) {
 	return &UpdateInfo{Version: best.Version, ReleaseNotes: rel.Body, Asset: *best, Release: rel}, nil
 }
 
+// ReleaseNotesInfo describes the most recently published GitHub release,
+// independent of whether it's newer than the running version — used to let
+// a user browse "what's new" on demand rather than only when Check finds an
+// update.
+type ReleaseNotesInfo struct {
+	Version      string
+	ReleaseNotes string
+	HTMLURL      string
+
+	AuthorLogin     string
+	AuthorAvatarURL string
+	AuthorHTMLURL   string
+}
+
+// LatestReleaseNotes fetches the notes for the latest published release on
+// cfg.Repo. Unlike Check, it never compares against cfg.CurrentVersion, so
+// it also returns something when the user is already up to date.
+//
+// The attributed author is always cfg.Owner (the repo owner), not whichever
+// account the GitHub API reports as having published the release — releases
+// here are published by a CI bot (see release.yml), so the API's own
+// "author" field would credit the bot instead of the person who wrote the
+// code.
+func LatestReleaseNotes(ctx context.Context, cfg Config) (*ReleaseNotesInfo, error) {
+	client := httpClient(cfg)
+	fetcher := &FeedFetcher{HTTPClient: client, Owner: cfg.Owner, Repo: cfg.Repo}
+	rel, err := fetcher.latestRelease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ReleaseNotesInfo{
+		Version:         rel.TagName,
+		ReleaseNotes:    rel.Body,
+		HTMLURL:         rel.HTMLURL,
+		AuthorLogin:     cfg.Owner,
+		AuthorAvatarURL: fmt.Sprintf("https://github.com/%s.png", cfg.Owner),
+		AuthorHTMLURL:   fmt.Sprintf("https://github.com/%s", cfg.Owner),
+	}, nil
+}
+
 // ProgressFunc is called periodically during Download with the fraction
 // (0.0-1.0) of the package downloaded so far.
 type ProgressFunc func(fraction float64)

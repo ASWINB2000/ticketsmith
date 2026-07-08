@@ -40,5 +40,8 @@ export const api = {
         list: Go.ListLogs,
         get: Go.GetLog,
     },
+    releaseNotes: {
+        latest: Go.GetLatestReleaseNotes,
+    },
     windowReady: Go.WindowReady,
 }

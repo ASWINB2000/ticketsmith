@@ -143,6 +143,13 @@ func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
 	return updater.Check(a.ctx, a.updaterConfig())
 }
 
+// GetLatestReleaseNotes returns the notes for the latest published GitHub
+// release, regardless of whether it's newer than the running version — bound
+// for the sidebar's version badge so a user can read "what's new" on demand.
+func (a *App) GetLatestReleaseNotes() (*updater.ReleaseNotesInfo, error) {
+	return updater.LatestReleaseNotes(a.ctx, a.updaterConfig())
+}
+
 // DownloadUpdate downloads the package described by info, emitting
 // "update:download-progress" events (fraction 0.0-1.0) as it goes. Called
 // only after the user confirms "Update now" in the frontend dialog.
