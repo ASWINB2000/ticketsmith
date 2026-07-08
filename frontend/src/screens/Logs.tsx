@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {toast} from 'sonner'
-import {logs} from '../../wailsjs/go/models'
+import {logs, templates as templatesNs} from '../../wailsjs/go/models'
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 import {api} from '@/lib/api'
 import {useConnections} from '@/lib/connections'
@@ -14,8 +14,51 @@ import {PageHeader} from '@/components/Layout/PageHeader'
 import {ScrollTextIcon} from 'lucide-react'
 
 type LogEntry = logs.LogEntry
+type Template = templatesNs.Template
 
 const ANY = '__any__'
+
+interface ParsedTicket {
+    subject: string
+    description: string
+    fields: Record<string, string>
+}
+
+function parseTicketContent(content?: string): ParsedTicket | null {
+    if (!content) return null
+    try {
+        const parsed = JSON.parse(content)
+        if (parsed && typeof parsed === 'object' && 'subject' in parsed) return parsed as ParsedTicket
+        return null
+    } catch {
+        return null
+    }
+}
+
+function TicketContent({content, fieldLabels}: { content?: string; fieldLabels: Record<string, string> }) {
+    const parsed = parseTicketContent(content)
+    if (!parsed) {
+        return <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{content || '—'}</pre>
+    }
+    return (
+        <div className="max-h-64 overflow-auto rounded-lg bg-muted p-3 text-xs grid gap-3">
+            <div>
+                <div className="mb-0.5 font-medium text-muted-foreground">Subject</div>
+                <div className="whitespace-pre-wrap">{parsed.subject || '—'}</div>
+            </div>
+            <div>
+                <div className="mb-0.5 font-medium text-muted-foreground">Description</div>
+                <div className="whitespace-pre-wrap">{parsed.description || '—'}</div>
+            </div>
+            {Object.entries(parsed.fields ?? {}).map(([name, value]) => (
+                <div key={name}>
+                    <div className="mb-0.5 font-medium text-muted-foreground">{fieldLabels[name] || name}</div>
+                    <div className="whitespace-pre-wrap">{value || '—'}</div>
+                </div>
+            ))}
+        </div>
+    )
+}
 
 export function Logs() {
     const [list, setList] = useState<LogEntry[]>([])
@@ -24,6 +67,18 @@ export function Logs() {
     const [status, setStatus] = useState(ANY)
     const [connectionId, setConnectionId] = useState(ANY)
     const [selected, setSelected] = useState<LogEntry | null>(null)
+    const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null)
+
+    // Field labels come from the template recorded on the entry, not the live
+    // template, so a since-edited/deleted template doesn't relabel history.
+    useEffect(() => {
+        setSelectedTemplate(null)
+        if (selected?.templateId) {
+            api.templates.get(selected.templateId).then(setSelectedTemplate).catch(() => {})
+        }
+    }, [selected])
+
+    const fieldLabels = Object.fromEntries((selectedTemplate?.fieldsSchema ?? []).map((f) => [f.name, f.label || f.name]))
 
     const refresh = () => {
         api.logs.list(new logs.Filter({
@@ -132,11 +187,11 @@ export function Logs() {
                                 </div>
                                 <div>
                                     <div className="mb-1 font-medium">Generated content</div>
-                                    <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{selected.generatedContent || '—'}</pre>
+                                    <TicketContent content={selected.generatedContent} fieldLabels={fieldLabels} />
                                 </div>
                                 <div>
                                     <div className="mb-1 font-medium">Final content</div>
-                                    <pre className="max-h-64 overflow-auto rounded-lg bg-muted p-2 font-mono text-xs whitespace-pre-wrap">{selected.finalContent || '—'}</pre>
+                                    <TicketContent content={selected.finalContent} fieldLabels={fieldLabels} />
                                 </div>
                                 {selected.errorMessage && (
                                     <div>
