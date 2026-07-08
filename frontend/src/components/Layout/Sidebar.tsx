@@ -1,17 +1,18 @@
 import {useEffect, useState, type ComponentType} from 'react'
 import {cn} from '@/lib/utils'
-import {Wand2Icon, LayoutTemplateIcon, Plug2Icon, ScrollTextIcon} from 'lucide-react'
+import {Wand2Icon, LayoutTemplateIcon, Plug2Icon, ScrollTextIcon, CircleHelpIcon} from 'lucide-react'
 import logo from '@/assets/images/logo-universal.png'
 import {UpdateControl} from '@/components/UpdateControl'
 import {Version} from '../../../wailsjs/go/main/App'
 
-export type ScreenKey = 'connect' | 'generate' | 'templates' | 'logs'
+export type ScreenKey = 'connect' | 'generate' | 'templates' | 'logs' | 'help'
 
 const SCREENS: { key: ScreenKey; label: string; icon: ComponentType<{ className?: string }> }[] = [
     {key: 'generate', label: 'Generate', icon: Wand2Icon},
     {key: 'templates', label: 'Templates', icon: LayoutTemplateIcon},
     {key: 'connect', label: 'Connect', icon: Plug2Icon},
     {key: 'logs', label: 'Logs', icon: ScrollTextIcon},
+    {key: 'help', label: 'Help', icon: CircleHelpIcon},
 ]
 
 interface SidebarProps {

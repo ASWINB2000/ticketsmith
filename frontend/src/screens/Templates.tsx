@@ -6,15 +6,14 @@ import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/compo
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Textarea} from '@/components/ui/textarea'
-import {Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetDescription, SheetBody} from '@/components/ui/sheet'
-import {Tabs, TabsList, TabsTrigger, TabsContent} from '@/components/ui/tabs'
+import {Dialog, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription} from '@/components/ui/dialog'
 import {FormField} from '@/components/FormField'
 import {DataTable, type DataTableColumn} from '@/components/DataTable'
 import {ConfirmDialog} from '@/components/ConfirmDialog'
 import {JsonFieldsEditor} from '@/components/JsonFieldsEditor'
 import {PageHeader} from '@/components/Layout/PageHeader'
 import {Badge} from '@/components/ui/badge'
-import {PlusIcon, EyeIcon, LayoutTemplateIcon, SquarePenIcon} from 'lucide-react'
+import {PlusIcon, EyeIcon, LayoutTemplateIcon} from 'lucide-react'
 
 type Template = templates.Template
 type Field = templates.Field
@@ -68,7 +67,6 @@ function TemplatePreview({form}: { form: TemplateFormState }) {
 export function Templates() {
     const [list, setList] = useState<Template[]>([])
     const [dialogOpen, setDialogOpen] = useState(false)
-    const [dialogTab, setDialogTab] = useState('details')
     const [editingId, setEditingId] = useState<string | null>(null)
     const [form, setForm] = useState<TemplateFormState>(emptyForm)
     const [saving, setSaving] = useState(false)
@@ -82,7 +80,6 @@ export function Templates() {
     const openCreate = () => {
         setEditingId(null)
         setForm(emptyForm)
-        setDialogTab('details')
         setDialogOpen(true)
     }
 
@@ -94,7 +91,6 @@ export function Templates() {
             aiInstructions: t.aiInstructions,
             fieldsSchema: t.fieldsSchema ?? [],
         })
-        setDialogTab('details')
         setDialogOpen(true)
     }
 
@@ -186,77 +182,55 @@ export function Templates() {
                 </Card>
             </div>
 
-            <Sheet open={dialogOpen} onOpenChange={setDialogOpen}>
-                <SheetContent>
-                    <SheetHeader>
-                        <SheetTitle>{editingId ? 'Edit template' : 'Add template'}</SheetTitle>
-                        <SheetDescription>Maps freeform notes to a tracker type and the fields the AI should extract.</SheetDescription>
-                    </SheetHeader>
-                    <SheetBody>
-                        <Tabs value={dialogTab} onValueChange={(v) => setDialogTab(v as string)}>
-                            <TabsList className="w-full">
-                                <TabsTrigger value="details" className="flex-1">Details</TabsTrigger>
-                                <TabsTrigger value="preview" className="flex-1">Preview</TabsTrigger>
-                            </TabsList>
-                            <TabsContent value="details" className="mt-4">
-                                <div className="mb-4 flex items-start gap-2.5 rounded-lg border bg-muted/40 p-3">
-                                    <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-                                        <SquarePenIcon className="size-3.5" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium">Details</p>
-                                        <p className="text-xs text-muted-foreground">What the AI needs to know to write this ticket.</p>
-                                    </div>
-                                </div>
-                                <div className="grid gap-4">
-                                    <FormField label="Name" htmlFor="tmpl-name">
-                                        <Input id="tmpl-name" value={form.name} onChange={(e) => setForm((f) => ({...f, name: e.target.value}))} />
-                                    </FormField>
-                                    <FormField
-                                        label="Tracker type name"
-                                        htmlFor="tmpl-type"
-                                        description="Must match a type name in your tracker (e.g. Bug, Task, User story)."
-                                    >
-                                        <Input
-                                            id="tmpl-type"
-                                            value={form.trackerTypeName}
-                                            onChange={(e) => setForm((f) => ({...f, trackerTypeName: e.target.value}))}
-                                        />
-                                    </FormField>
-                                    <FormField label="AI instructions" htmlFor="tmpl-instructions">
-                                        <Textarea
-                                            id="tmpl-instructions"
-                                            rows={4}
-                                            value={form.aiInstructions}
-                                            onChange={(e) => setForm((f) => ({...f, aiInstructions: e.target.value}))}
-                                            placeholder="Extract a clear subject and description. Be concise and specific."
-                                        />
-                                    </FormField>
-                                    <JsonFieldsEditor
-                                        fields={form.fieldsSchema}
-                                        onChange={(fields) => setForm((f) => ({...f, fieldsSchema: fields}))}
-                                    />
-                                </div>
-                            </TabsContent>
-                            <TabsContent value="preview" className="mt-4">
-                                <div className="mb-4 flex items-start gap-2.5 rounded-lg border bg-muted/40 p-3">
-                                    <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-accent text-accent-foreground">
-                                        <EyeIcon className="size-3.5" />
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-medium">Preview</p>
-                                        <p className="text-xs text-muted-foreground">How it looks on the Generate screen before you save.</p>
-                                    </div>
-                                </div>
-                                <TemplatePreview form={form} />
-                            </TabsContent>
-                        </Tabs>
-                    </SheetBody>
-                    <SheetFooter>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="flex max-h-[85vh] w-full flex-col sm:max-w-3xl lg:max-w-5xl">
+                    <DialogHeader>
+                        <DialogTitle>{editingId ? 'Edit template' : 'Add template'}</DialogTitle>
+                        <DialogDescription>Maps freeform notes to a tracker type and the fields the AI should extract.</DialogDescription>
+                    </DialogHeader>
+                    <div className="-mx-4 grid min-h-0 flex-1 gap-6 overflow-y-auto px-4 py-1 lg:grid-cols-[minmax(0,1fr)_320px]">
+                        <div className="grid gap-4">
+                            <FormField label="Name" htmlFor="tmpl-name">
+                                <Input id="tmpl-name" value={form.name} onChange={(e) => setForm((f) => ({...f, name: e.target.value}))} />
+                            </FormField>
+                            <FormField
+                                label="Tracker type name"
+                                htmlFor="tmpl-type"
+                                description="Must match a type name in your tracker (e.g. Bug, Task, User story)."
+                            >
+                                <Input
+                                    id="tmpl-type"
+                                    value={form.trackerTypeName}
+                                    onChange={(e) => setForm((f) => ({...f, trackerTypeName: e.target.value}))}
+                                />
+                            </FormField>
+                            <FormField label="AI instructions" htmlFor="tmpl-instructions">
+                                <Textarea
+                                    id="tmpl-instructions"
+                                    rows={4}
+                                    value={form.aiInstructions}
+                                    onChange={(e) => setForm((f) => ({...f, aiInstructions: e.target.value}))}
+                                    placeholder="Extract a clear subject and description. Be concise and specific."
+                                />
+                            </FormField>
+                            <JsonFieldsEditor
+                                fields={form.fieldsSchema}
+                                onChange={(fields) => setForm((f) => ({...f, fieldsSchema: fields}))}
+                            />
+                        </div>
+                        <div className="grid content-start gap-2 lg:sticky lg:top-0">
+                            <span className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                <EyeIcon className="size-3.5" /> Live preview
+                            </span>
+                            <TemplatePreview form={form} />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
                         <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-                    </SheetFooter>
-                </SheetContent>
-            </Sheet>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

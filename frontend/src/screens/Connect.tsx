@@ -278,7 +278,7 @@ export function Connect() {
                             <CardTitle>AI provider</CardTitle>
                         </div>
                         <CardDescription>
-                            OpenAI-compatible endpoint used to generate tickets (e.g. Groq: https://api.groq.com/openai/v1).
+                            OpenAI-compatible endpoint used to generate tickets.
                             {aiHasKey && <span className="ml-1 font-medium text-foreground">An API key is currently saved.</span>}
                         </CardDescription>
                     </CardHeader>
@@ -297,9 +297,7 @@ export function Connect() {
                                     <span className="inline-flex items-center gap-1.5">
                                         Model
                                         <InfoTooltip>
-                                            Your API key only proves who's calling — it doesn't say which model to run. One key can call
-                                            many models, so the exact model name (e.g. llama-3.1-8b-instant) has to be sent with every
-                                            request.
+                                            Your API key doesn't determine which model runs. Each request has to name the exact model your provider expects.
                                         </InfoTooltip>
                                     </span>
                                 }

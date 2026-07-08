@@ -4,11 +4,13 @@ import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 
 // Renders exactly the markdown shapes GitHub's "generate release notes" API
 // produces (## headings, * bullet lists, **bold**, [text](url) links,
-// `code`) — not a general-purpose markdown parser, since that's the only
-// source this ever displays.
+// `code`, and bare https:// URLs like the "Full Changelog" line, which
+// GitHub emits unwrapped rather than as a markdown link) — not a
+// general-purpose markdown parser, since that's the only source this ever
+// displays.
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
     const nodes: ReactNode[] = []
-    const pattern = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`/g
+    const pattern = /\*\*(.+?)\*\*|\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|(https?:\/\/[^\s)]+)/g
     let lastIndex = 0
     let match: RegExpExecArray | null
     let i = 0
@@ -25,16 +27,28 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
                     key={key}
                     type="button"
                     onClick={() => BrowserOpenURL(url)}
-                    className="text-primary underline underline-offset-2 hover:text-primary/80"
+                    className="break-all text-primary underline underline-offset-2 hover:text-primary/80"
                 >
                     {match[2]}
                 </button>,
             )
         } else if (match[4] !== undefined) {
             nodes.push(
-                <code key={key} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.8em]">
+                <code key={key} className="break-all rounded bg-muted px-1 py-0.5 font-mono text-[0.8em]">
                     {match[4]}
                 </code>,
+            )
+        } else if (match[5] !== undefined) {
+            const url = match[5]
+            nodes.push(
+                <button
+                    key={key}
+                    type="button"
+                    onClick={() => BrowserOpenURL(url)}
+                    className="break-all text-primary underline underline-offset-2 hover:text-primary/80"
+                >
+                    {url}
+                </button>,
             )
         }
         lastIndex = pattern.lastIndex
@@ -88,7 +102,7 @@ export function ReleaseNotes({markdown}: { markdown: string }) {
             listItems.push(
                 <li key={`li-${i}`} className="flex gap-2 text-sm text-muted-foreground">
                     <span className="mt-[7px] size-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                    <span>{renderInline(item[1], `li-${i}`)}</span>
+                    <span className="min-w-0 break-words">{renderInline(item[1], `li-${i}`)}</span>
                 </li>,
             )
             return
@@ -96,12 +110,12 @@ export function ReleaseNotes({markdown}: { markdown: string }) {
 
         flushList()
         blocks.push(
-            <p key={`p-${i}`} className="text-sm text-muted-foreground">
+            <p key={`p-${i}`} className="break-words text-sm text-muted-foreground">
                 {renderInline(line, `p-${i}`)}
             </p>,
         )
     })
     flushList()
 
-    return <div className="grid gap-2">{blocks}</div>
+    return <div className="grid min-w-0 gap-2">{blocks}</div>
 }

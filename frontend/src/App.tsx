@@ -7,6 +7,7 @@ import {Connect} from '@/screens/Connect'
 import {Generate} from '@/screens/Generate'
 import {Templates} from '@/screens/Templates'
 import {Logs} from '@/screens/Logs'
+import {Help} from '@/screens/Help'
 
 function App() {
     const [screen, setScreen] = useState<ScreenKey>('generate')
@@ -34,6 +35,7 @@ function App() {
                     {screen === 'connect' && <Connect />}
                     {screen === 'templates' && <Templates />}
                     {screen === 'logs' && <Logs />}
+                    {screen === 'help' && <Help />}
                 </main>
                 <Toaster />
             </div>

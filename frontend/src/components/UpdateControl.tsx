@@ -132,7 +132,7 @@ export function UpdateControl() {
                         </DialogTitle>
                     </DialogHeader>
                     {info?.ReleaseNotes ? (
-                        <div className="max-h-72 overflow-y-auto rounded-lg border bg-muted/30 p-3">
+                        <div className="max-h-72 overflow-y-auto overflow-x-hidden rounded-lg border bg-muted/30 p-3">
                             <ReleaseNotes markdown={info.ReleaseNotes} />
                         </div>
                     ) : (
