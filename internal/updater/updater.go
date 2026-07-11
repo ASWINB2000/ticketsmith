@@ -63,6 +63,7 @@ type ReleaseNotesInfo struct {
 	Version      string
 	ReleaseNotes string
 	HTMLURL      string
+	PublishedAt  time.Time
 
 	AuthorLogin     string
 	AuthorAvatarURL string
@@ -89,6 +90,7 @@ func LatestReleaseNotes(ctx context.Context, cfg Config) (*ReleaseNotesInfo, err
 		Version:         rel.TagName,
 		ReleaseNotes:    rel.Body,
 		HTMLURL:         rel.HTMLURL,
+		PublishedAt:     rel.PublishedAt,
 		AuthorLogin:     cfg.Owner,
 		AuthorAvatarURL: fmt.Sprintf("https://github.com/%s.png", cfg.Owner),
 		AuthorHTMLURL:   fmt.Sprintf("https://github.com/%s", cfg.Owner),

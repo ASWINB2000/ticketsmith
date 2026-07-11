@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 const githubAPI = "https://api.github.com"
@@ -30,10 +31,11 @@ type ghAsset struct {
 }
 
 type ghRelease struct {
-	TagName string    `json:"tag_name"`
-	Body    string    `json:"body"` // markdown release notes, as written when the GitHub release was published
-	HTMLURL string    `json:"html_url"`
-	Assets  []ghAsset `json:"assets"`
+	TagName     string    `json:"tag_name"`
+	Body        string    `json:"body"` // markdown release notes, as written when the GitHub release was published
+	HTMLURL     string    `json:"html_url"`
+	PublishedAt time.Time `json:"published_at"`
+	Assets      []ghAsset `json:"assets"`
 }
 
 // FeedFetcher fetches the Velopack release feed for a GitHub-hosted repo.

@@ -67,7 +67,7 @@ function NoteCard({
     }
 
     return (
-        <Card className={cn(selected && 'ring-2 ring-primary')}>
+        <Card className={cn(selected && 'outline-2 outline-primary')}>
             <CardHeader className="flex flex-row items-start justify-between gap-2">
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                     <input
@@ -101,7 +101,7 @@ function NoteCard({
                 <NoteEditor
                     content={note.content}
                     onBlur={(markdown) => save(title, markdown)}
-                    className="max-h-56 border-none px-0 py-0"
+                    className="max-h-56 border-none px-1 py-0.5 -mx-1 -my-0.5"
                 />
                 <div className="mt-3 flex items-center justify-between gap-2">
                     <span
@@ -264,7 +264,7 @@ export function Notes({onConvertToGenerate}: NotesProps) {
                             content=""
                             onChange={setNewContent}
                             placeholder="Jot something down…"
-                            className="min-h-40"
+                            className="min-h-40 resize-y flex-none"
                         />
                         <div>
                             <Button onClick={save} disabled={saving || !newContent.trim()}>
@@ -293,7 +293,7 @@ export function Notes({onConvertToGenerate}: NotesProps) {
                             No notes yet.
                         </p>
                     ) : (
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             {list.map((n) => (
                                 <NoteCard
                                     key={n.id}

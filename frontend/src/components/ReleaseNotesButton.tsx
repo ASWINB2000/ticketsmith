@@ -2,7 +2,7 @@ import {useState} from 'react'
 import {toast} from 'sonner'
 import {SparklesIcon} from 'lucide-react'
 import {api} from '@/lib/api'
-import {cn} from '@/lib/utils'
+import {cn, formatRelativeTime} from '@/lib/utils'
 import type {updater} from '../../wailsjs/go/models'
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from '@/components/ui/dialog'
@@ -14,6 +14,12 @@ export function ReleaseNotesButton({version}: { version: string }) {
     const [open, setOpen] = useState(false)
     const [loading, setLoading] = useState(false)
     const [info, setInfo] = useState<updater.ReleaseNotesInfo | null>(null)
+    // A zero-value Go time.Time (no published_at from the API) serializes to
+    // "0001-01-01T00:00:00Z", which parses to a valid but pre-epoch Date —
+    // getTime() > 0 filters that out rather than showing "56 years ago".
+    const publishedDate = info?.PublishedAt && new Date(info.PublishedAt).getTime() > 0
+        ? new Date(info.PublishedAt)
+        : null
 
     const handleOpen = async () => {
         setOpen(true)
@@ -62,6 +68,11 @@ export function ReleaseNotesButton({version}: { version: string }) {
                                     <img src={info.AuthorAvatarURL} alt="" className="size-4 rounded-full" />
                                 )}
                                 Released by <span className="font-medium underline-offset-2 hover:underline">@{info.AuthorLogin}</span>
+                                {publishedDate && (
+                                    <span title={publishedDate.toLocaleString()}>
+                                        · {formatRelativeTime(publishedDate)}
+                                    </span>
+                                )}
                             </button>
                         )}
                     </DialogHeader>
