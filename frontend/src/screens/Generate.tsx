@@ -4,6 +4,7 @@ import {connections, templates, tracker, ai} from '../../wailsjs/go/models'
 import {BrowserOpenURL} from '../../wailsjs/runtime/runtime'
 import {api} from '@/lib/api'
 import {useConnections} from '@/lib/connections'
+import type {NotesPrefill} from '@/lib/notesPrefill'
 import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
@@ -12,14 +13,22 @@ import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/c
 import {FormField} from '@/components/FormField'
 import {PageHeader} from '@/components/Layout/PageHeader'
 import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetBody, SheetFooter, SheetClose} from '@/components/ui/sheet'
+import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter} from '@/components/ui/dialog'
 import {Badge} from '@/components/ui/badge'
-import {Wand2Icon, SettingsIcon, Undo2Icon} from 'lucide-react'
+import {Wand2Icon, SettingsIcon, Undo2Icon, PaperclipIcon, XIcon, ImageIcon, VideoIcon} from 'lucide-react'
+
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.bmp'])
+
+function isImagePath(path: string): boolean {
+    return IMAGE_EXTENSIONS.has(path.slice(path.lastIndexOf('.')).toLowerCase())
+}
 
 type Connection = connections.Connection
 type Template = templates.Template
 type Project = tracker.Project
 type TicketType = tracker.TicketType
 type User = tracker.User
+type Priority = tracker.Priority
 
 const NONE = '__none__'
 
@@ -34,7 +43,24 @@ function sameTicket(a: EditableTicket, b: EditableTicket): boolean {
         && JSON.stringify(a.fields) === JSON.stringify(b.fields)
 }
 
-export function Generate({active}: { active: boolean }) {
+// Reads a pasted image/video File as base64 (stripping the data-URL prefix),
+// since the Wails binding takes a plain string rather than raw bytes.
+function fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve((reader.result as string).split(',')[1] ?? '')
+        reader.onerror = () => reject(reader.error)
+        reader.readAsDataURL(file)
+    })
+}
+
+interface GenerateProps {
+    active: boolean
+    prefill: NotesPrefill | null
+    onPrefillConsumed: () => void
+}
+
+export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
     const {connections: conns} = useConnections()
     const [tmpls, setTmpls] = useState<Template[]>([])
     const [connectionId, setConnectionId] = useState('')
@@ -43,12 +69,20 @@ export function Generate({active}: { active: boolean }) {
     const [projects, setProjects] = useState<Project[]>([])
     const [types, setTypes] = useState<TicketType[]>([])
     const [assignees, setAssignees] = useState<User[]>([])
+    const [priorities, setPriorities] = useState<Priority[]>([])
     const [projectId, setProjectId] = useState('')
     const [typeId, setTypeId] = useState('')
     const [assigneeId, setAssigneeId] = useState(NONE)
+    const [priorityId, setPriorityId] = useState(NONE)
     const [parentId, setParentId] = useState('')
+    const [startDate, setStartDate] = useState('')
+    const [dueDate, setDueDate] = useState('')
     const [projectsError, setProjectsError] = useState<string | null>(null)
     const [typesError, setTypesError] = useState<string | null>(null)
+
+    const [attachments, setAttachments] = useState<string[]>([])
+    const [previews, setPreviews] = useState<Record<string, string>>({})
+    const [uploadingAttachments, setUploadingAttachments] = useState(false)
 
     const [configOpen, setConfigOpen] = useState(false)
     // Last-used destination, restored once connections/projects finish loading.
@@ -63,11 +97,32 @@ export function Generate({active}: { active: boolean }) {
     const [creating, setCreating] = useState(false)
     const [createdTicket, setCreatedTicket] = useState<tracker.Ticket | null>(null)
 
+    // Notes -> Generate handoff (docs/NOTES_PLAN.md §5): which note(s) this
+    // draft came from, if any, so a successful create can prompt keep/delete.
+    const pendingNoteIds = useRef<string[]>([])
+    const [notePromptOpen, setNotePromptOpen] = useState(false)
+    const [notePromptIds, setNotePromptIds] = useState<string[]>([])
+
     const template = tmpls.find((t) => t.id === templateId) ?? null
     const connectionName = conns.find((c) => c.id === connectionId)?.name
     const projectName = projects.find((p) => p.id === projectId)?.name
     const configured = !!connectionId && !!projectId
     const isEdited = !!ticket && !!generatedTicket && !sameTicket(ticket, generatedTicket)
+
+    // Fetches a thumbnail for a newly-staged image attachment; silently leaves
+    // it out of `previews` on failure (e.g. too large) so the tile falls back
+    // to a plain icon instead of erroring the whole attach flow.
+    const loadPreview = (path: string) => {
+        if (!isImagePath(path)) return
+        api.generate.attachmentPreview(path)
+            .then((dataUrl) => setPreviews((prev) => ({...prev, [path]: dataUrl})))
+            .catch(() => {})
+    }
+
+    const stageAttachment = (path: string) => {
+        setAttachments((prev) => (prev.includes(path) ? prev : [...prev, path]))
+        loadPreview(path)
+    }
 
     useEffect(() => {
         api.templates.list().then(setTmpls).catch((err) => toast.error(`Failed to load templates: ${err}`))
@@ -85,10 +140,62 @@ export function Generate({active}: { active: boolean }) {
     }, [conns])
 
     // Generate stays mounted across tab switches (so notes/preview survive), but its
-    // Sheet renders via a portal — hiding this screen alone wouldn't hide an open one.
+    // Sheet/Dialog render via a portal — hiding this screen alone wouldn't hide an open one.
     useEffect(() => {
-        if (!active) setConfigOpen(false)
+        if (!active) {
+            setConfigOpen(false)
+            setNotePromptOpen(false)
+        }
     }, [active])
+
+    // Lets pasting a screenshot (or a copied file from Explorer/Finder) anywhere
+    // on this screen stage it as an attachment, without needing a dedicated
+    // drop zone to focus first. Only active while this tab is the visible one,
+    // and only intercepts the paste when it actually finds an image/video —
+    // otherwise normal text paste into the Brief textarea is untouched.
+    useEffect(() => {
+        if (!active) return
+        const handlePaste = (e: ClipboardEvent) => {
+            const items = e.clipboardData?.items
+            if (!items) return
+            const fileItems = Array.from(items).filter(
+                (it) => it.kind === 'file' && (it.type.startsWith('image/') || it.type.startsWith('video/')),
+            )
+            if (fileItems.length === 0) return
+            e.preventDefault()
+            fileItems.forEach(async (item, i) => {
+                const file = item.getAsFile()
+                if (!file) return
+                try {
+                    const base64 = await fileToBase64(file)
+                    const ext = file.type.split('/')[1] ?? 'png'
+                    const name = file.name || `pasted-${Date.now()}-${i}.${ext}`
+                    const path = await api.generate.saveClipboardAttachment(base64, name)
+                    stageAttachment(path)
+                } catch (err) {
+                    toast.error(`Failed to attach pasted file: ${err}`)
+                }
+            })
+        }
+        window.addEventListener('paste', handlePaste)
+        return () => window.removeEventListener('paste', handlePaste)
+    }, [active])
+
+    // Consume a prefill handed off from the Notes screen: seed the raw input
+    // and remember which note(s) it came from, starting a fresh conversion
+    // (any stale preview from an unrelated prior session is cleared).
+    useEffect(() => {
+        if (!prefill) return
+        setRawInput(prefill.content)
+        pendingNoteIds.current = prefill.sourceNoteIds
+        setTicket(null)
+        setGeneratedTicket(null)
+        setLogId(null)
+        setCreatedTicket(null)
+        setAttachments([])
+        setPreviews({})
+        onPrefillConsumed()
+    }, [prefill])
 
     // Templates are otherwise only fetched once on mount, so refresh them whenever
     // this tab becomes active again to pick up edits made on the Templates screen.
@@ -101,11 +208,13 @@ export function Generate({active}: { active: boolean }) {
         // never linger while (or after) the new connection's fetch is in flight.
         setProjects([])
         setTypes([])
+        setPriorities([])
         setProjectsError(null)
         setTypesError(null)
         setProjectId('')
         setAssignees([])
         setAssigneeId(NONE)
+        setPriorityId(NONE)
         if (!connectionId) return
 
         api.tracker.projects(connectionId).then((ps) => {
@@ -122,6 +231,7 @@ export function Generate({active}: { active: boolean }) {
             setTypesError(`${err}`)
             toast.error(`Failed to load ticket types: ${err}`)
         })
+        api.tracker.priorities(connectionId).then(setPriorities).catch((err) => toast.error(`Failed to load priorities: ${err}`))
     }, [connectionId])
 
     // Remember the destination whenever both halves are set, so it survives a restart.
@@ -183,13 +293,64 @@ export function Generate({active}: { active: boolean }) {
             const result = await api.generate.create(
                 logId, connectionId, projectId, typeId, payload,
                 parentId.trim(), assigneeId === NONE ? '' : assigneeId,
+                priorityId === NONE ? '' : priorityId, startDate, dueDate,
             )
             setCreatedTicket(result)
             toast.success('Ticket created')
+            if (pendingNoteIds.current.length > 0) {
+                setNotePromptIds(pendingNoteIds.current)
+                setNotePromptOpen(true)
+                pendingNoteIds.current = []
+            }
+            if (attachments.length > 0) {
+                setUploadingAttachments(true)
+                api.generate.uploadAttachments(connectionId, result.id, attachments)
+                    .then(() => {
+                        setAttachments([])
+                        setPreviews({})
+                    })
+                    .catch((err) => toast.error(`Ticket created, but attaching files failed: ${err}`))
+                    .finally(() => setUploadingAttachments(false))
+            }
         } catch (err) {
             toast.error(`Create failed: ${err}`)
         } finally {
             setCreating(false)
+        }
+    }
+
+    const addAttachments = async () => {
+        try {
+            const picked = await api.generate.pickAttachments()
+            picked.forEach(stageAttachment)
+        } catch (err) {
+            toast.error(`Failed to open file picker: ${err}`)
+        }
+    }
+
+    const removeAttachment = (path: string) => {
+        setAttachments((prev) => prev.filter((p) => p !== path))
+        setPreviews((prev) => {
+            const {[path]: _removed, ...rest} = prev
+            return rest
+        })
+        api.generate.discardClipboardAttachment(path).catch(() => {})
+    }
+
+    const keepNotes = () => {
+        setNotePromptOpen(false)
+        setNotePromptIds([])
+    }
+
+    const deleteNotes = async () => {
+        try {
+            await Promise.all(notePromptIds.map((id) => api.notes.remove(id)))
+            toast.success(notePromptIds.length > 1 ? 'Notes deleted' : 'Note deleted')
+        } catch (err) {
+            toast.error(`Failed to delete note(s): ${err}`)
+        } finally {
+            setNotePromptOpen(false)
+            setNotePromptIds([])
         }
     }
 
@@ -223,31 +384,34 @@ export function Generate({active}: { active: boolean }) {
             )}
             <Card>
                 <CardHeader>
-                    <CardTitle>Notes</CardTitle>
-                    <CardDescription>Pick a template, then describe the issue or task in your own words.</CardDescription>
+                    <CardTitle>Brief</CardTitle>
+                    <CardDescription>
+                        Pick a template, then describe the issue or task in your own words.
+                        Fields marked <span className="text-destructive">*</span> are required — everything else is optional.
+                    </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField label="Template">
+                        <FormField label="Template" required>
                             <Select
                                 value={templateId}
                                 onValueChange={(v) => setTemplateId(v as string)}
                                 items={Object.fromEntries(tmpls.map((t) => [t.id, t.name]))}
                             >
-                                <SelectTrigger><SelectValue placeholder="Select a template" /></SelectTrigger>
+                                <SelectTrigger className="w-full"><SelectValue placeholder="Select a template" /></SelectTrigger>
                                 <SelectContent>
                                     {tmpls.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                                 </SelectContent>
                             </Select>
                         </FormField>
-                        <FormField label="Type" error={typesError ?? undefined}>
+                        <FormField label="Type" required error={typesError ?? undefined}>
                             <Select
                                 value={typeId}
                                 onValueChange={(v) => setTypeId(v as string)}
                                 disabled={!connectionId}
                                 items={Object.fromEntries(types.map((t) => [t.id, t.name]))}
                             >
-                                <SelectTrigger><SelectValue placeholder="Select a type" /></SelectTrigger>
+                                <SelectTrigger className="w-full"><SelectValue placeholder="Select a type" /></SelectTrigger>
                                 <SelectContent>
                                     {types.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                                 </SelectContent>
@@ -256,33 +420,99 @@ export function Generate({active}: { active: boolean }) {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                        <FormField label="Assignee (optional)">
+                        <FormField label="Assignee">
                             <Select
                                 value={assigneeId}
                                 onValueChange={(v) => setAssigneeId(v as string)}
                                 disabled={!projectId}
                                 items={{[NONE]: 'Unassigned', ...Object.fromEntries(assignees.map((u) => [u.id, u.name]))}}
                             >
-                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value={NONE}>Unassigned</SelectItem>
                                     {assignees.map((u) => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
                                 </SelectContent>
                             </Select>
                         </FormField>
-                        <FormField label="Parent ticket ID (optional)" htmlFor="parent-id">
+                        <FormField label="Parent ticket ID" htmlFor="parent-id">
                             <Input id="parent-id" value={parentId} onChange={(e) => setParentId(e.target.value)} placeholder="e.g. 123" />
                         </FormField>
                     </div>
 
-                    <FormField label="Notes" htmlFor="raw-input">
+                    <div className="grid grid-cols-2 gap-4">
+                        <FormField label="Priority">
+                            <Select
+                                value={priorityId}
+                                onValueChange={(v) => setPriorityId(v as string)}
+                                disabled={!connectionId}
+                                items={{[NONE]: 'Tracker default', ...Object.fromEntries(priorities.map((p) => [p.id, p.name]))}}
+                            >
+                                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={NONE}>Tracker default</SelectItem>
+                                    {priorities.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                                </SelectContent>
+                            </Select>
+                        </FormField>
+                        <FormField label="Dates">
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="grid gap-1">
+                                    <span className="text-xs text-muted-foreground">Start</span>
+                                    <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                                </div>
+                                <div className="grid gap-1">
+                                    <span className="text-xs text-muted-foreground">Due</span>
+                                    <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                                </div>
+                            </div>
+                        </FormField>
+                    </div>
+
+                    <FormField label="Brief" htmlFor="raw-input" required>
                         <Textarea
                             id="raw-input"
                             rows={5}
                             value={rawInput}
-                            onChange={(e) => setRawInput(e.target.value)}
+                            onChange={(e) => {
+                                setRawInput(e.target.value)
+                                if (e.target.value.trim() === '') pendingNoteIds.current = []
+                            }}
                             placeholder="Paste rough notes about the issue or task here…"
                         />
+                    </FormField>
+
+                    <FormField label="Attachments" description="Paste a screenshot (Ctrl/Cmd+V) anywhere on this screen, or add files manually.">
+                        <div className="flex flex-wrap items-end gap-3">
+                            {attachments.map((path) => {
+                                const name = path.split(/[\\/]/).pop()
+                                const preview = previews[path]
+                                return (
+                                    <div key={path} className="group relative">
+                                        <div className="flex size-16 items-center justify-center overflow-hidden rounded-lg border bg-muted">
+                                            {preview ? (
+                                                <img src={preview} alt={name} className="size-full object-cover" />
+                                            ) : isImagePath(path) ? (
+                                                <ImageIcon className="size-5 text-muted-foreground" />
+                                            ) : (
+                                                <VideoIcon className="size-5 text-muted-foreground" />
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => removeAttachment(path)}
+                                            className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border bg-background opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                                            aria-label={`Remove ${name}`}
+                                        >
+                                            <XIcon className="size-3" />
+                                        </button>
+                                        <p className="mt-1 w-16 truncate text-center text-[11px] text-muted-foreground" title={name}>{name}</p>
+                                    </div>
+                                )
+                            })}
+                            <Button type="button" variant="outline" size="sm" onClick={addAttachments}>
+                                <PaperclipIcon /> Add images or videos
+                            </Button>
+                        </div>
                     </FormField>
 
                     <div className="flex gap-2">
@@ -303,7 +533,7 @@ export function Generate({active}: { active: boolean }) {
                         <CardDescription>Edit anything below, then create the ticket — or tweak your notes above and regenerate.</CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-4">
-                        <FormField label="Subject" htmlFor="preview-subject">
+                        <FormField label="Subject" htmlFor="preview-subject" required>
                             <Input
                                 id="preview-subject"
                                 value={ticket.subject}
@@ -360,6 +590,7 @@ export function Generate({active}: { active: boolean }) {
                                 >
                                     {createdTicket.url}
                                 </button>
+                                {uploadingAttachments && <span className="ml-2 text-muted-foreground">Attaching files…</span>}
                             </div>
                         )}
                     </CardContent>
@@ -407,6 +638,22 @@ export function Generate({active}: { active: boolean }) {
                     </SheetFooter>
                 </SheetContent>
             </Sheet>
+
+            <Dialog open={notePromptOpen} onOpenChange={setNotePromptOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Keep the originating note{notePromptIds.length > 1 ? 's' : ''}?</DialogTitle>
+                        <DialogDescription>
+                            This ticket was created from {notePromptIds.length > 1 ? `${notePromptIds.length} notes` : 'a note'} in
+                            your inbox. Keep it in case it spawns another ticket later, or delete it now to keep the list tidy.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={keepNotes}>Keep</Button>
+                        <Button variant="destructive" onClick={deleteNotes}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

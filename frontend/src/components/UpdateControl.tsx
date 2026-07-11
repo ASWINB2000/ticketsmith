@@ -25,20 +25,23 @@ export function UpdateControl() {
     const [progress, setProgress] = useState(0)
     const [pkgPath, setPkgPath] = useState('')
     const [installing, setInstalling] = useState(false)
-    // Set when the silent startup check finds something. Startup never pops
-    // a dialog on its own (that'd nag on every launch until you act on it) —
-    // it just flips the button to say "Update available" with a dot. You
-    // click it whenever you want; that always does a fresh check rather
-    // than trusting this possibly-stale signal, so the dialog you actually
-    // see is never out of date.
+    // True whenever a known update hasn't been installed yet. Set by the
+    // silent startup check (which also pops the dialog once) or by a manual
+    // check finding something; only cleared when a fresh check comes back
+    // empty or the update is actually installed. Dismissing the dialog with
+    // "Not now"/"Later" must NOT clear this — the sidebar button should keep
+    // saying "Update available" until you act on it, not just until you look
+    // at it once.
     const [pendingUpdate, setPendingUpdate] = useState(false)
 
     useEffect(() => {
         const offApplying = EventsOn('update:applying', () => {
             toast.info('Installing update — restarting in a moment...')
         })
-        const offAvailable = EventsOn('update:available', () => {
+        const offAvailable = EventsOn('update:available', (result: updater.UpdateInfo) => {
+            setInfo(result)
             setPendingUpdate(true)
+            setPhase('found')
         })
         return () => {
             offApplying()
@@ -47,16 +50,17 @@ export function UpdateControl() {
     }, [])
 
     async function handleCheck() {
-        setPendingUpdate(false)
         setPhase('checking')
         try {
             const result = await CheckForUpdates()
             if (!result) {
                 toast.success("You're up to date")
+                setPendingUpdate(false)
                 setPhase('idle')
                 return
             }
             setInfo(result)
+            setPendingUpdate(true)
             setPhase('found')
         } catch {
             toast.error('Could not check for updates')
@@ -94,9 +98,10 @@ export function UpdateControl() {
     }
 
     const busy = phase === 'checking' || phase === 'downloading'
+    const attention = phase === 'idle' && pendingUpdate
     const label = phase === 'downloading'
         ? `Downloading… ${Math.round(progress * 100)}%`
-        : phase === 'idle' && pendingUpdate
+        : attention
             ? 'Update available'
             : LABEL[phase]
 
@@ -106,16 +111,19 @@ export function UpdateControl() {
                 onClick={handleCheck}
                 disabled={busy}
                 className={cn(
-                    'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium outline-none transition-colors hover:bg-sidebar-accent/60 focus-visible:text-sidebar-foreground disabled:pointer-events-none disabled:opacity-60',
-                    phase === 'idle' && pendingUpdate
-                        ? 'text-primary hover:text-primary'
-                        : 'text-sidebar-foreground/60 hover:text-sidebar-foreground',
+                    'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium outline-none transition-colors disabled:pointer-events-none disabled:opacity-60',
+                    attention
+                        ? 'bg-amber-400/10 py-2 text-sm font-semibold text-amber-300 ring-1 ring-inset ring-amber-400/25 hover:bg-amber-400/15 hover:text-amber-200 focus-visible:text-amber-200'
+                        : 'text-sidebar-foreground/60 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground focus-visible:text-sidebar-foreground',
                 )}
             >
                 <span className="relative flex shrink-0">
-                    <RefreshCwIcon className={cn('size-3.5', busy && 'animate-spin')} />
-                    {phase === 'idle' && pendingUpdate && (
-                        <span className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-primary ring-2 ring-sidebar" />
+                    <RefreshCwIcon className={cn(attention ? 'size-4' : 'size-3.5', busy && 'animate-spin')} />
+                    {attention && (
+                        <span className="absolute -top-0.5 -right-0.5 flex size-2">
+                            <span className="absolute inline-flex size-full animate-ping rounded-full bg-amber-400 opacity-75" />
+                            <span className="relative size-2 rounded-full bg-amber-400 ring-2 ring-sidebar" />
+                        </span>
                     )}
                 </span>
                 {label}

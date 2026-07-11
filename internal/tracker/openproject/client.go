@@ -21,10 +21,11 @@ type Client struct {
 	token   string
 	http    *http.Client
 
-	mu             sync.RWMutex
-	typesCache     []tracker.TicketType
-	projectsCache  []tracker.Project
-	assigneesCache map[string][]tracker.User
+	mu              sync.RWMutex
+	typesCache      []tracker.TicketType
+	projectsCache   []tracker.Project
+	assigneesCache  map[string][]tracker.User
+	prioritiesCache []tracker.Priority
 }
 
 // NewClient constructs an OpenProject client. baseURL is the root of the
@@ -46,6 +47,7 @@ func (c *Client) InvalidateCache() {
 	c.typesCache = nil
 	c.projectsCache = nil
 	c.assigneesCache = map[string][]tracker.User{}
+	c.prioritiesCache = nil
 }
 
 type opErrorBody struct {

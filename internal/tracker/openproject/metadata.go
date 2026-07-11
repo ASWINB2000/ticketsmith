@@ -73,6 +73,32 @@ func (c *Client) GetProjects(ctx context.Context) ([]tracker.Project, error) {
 	return projects, nil
 }
 
+// GetPriorities fetches and caches the OpenProject instance's ticket priorities.
+func (c *Client) GetPriorities(ctx context.Context) ([]tracker.Priority, error) {
+	c.mu.RLock()
+	if c.prioritiesCache != nil {
+		cached := c.prioritiesCache
+		c.mu.RUnlock()
+		return cached, nil
+	}
+	c.mu.RUnlock()
+
+	var col halCollection
+	if err := c.doRequest(ctx, http.MethodGet, "/api/v3/priorities", nil, &col); err != nil {
+		return nil, err
+	}
+
+	priorities := make([]tracker.Priority, 0, len(col.Embedded.Elements))
+	for _, e := range col.Embedded.Elements {
+		priorities = append(priorities, tracker.Priority{ID: strconv.Itoa(e.ID), Name: e.Name})
+	}
+
+	c.mu.Lock()
+	c.prioritiesCache = priorities
+	c.mu.Unlock()
+	return priorities, nil
+}
+
 // GetAssignees fetches and caches (per projectID) the users assignable within a project.
 func (c *Client) GetAssignees(ctx context.Context, projectID string) ([]tracker.User, error) {
 	c.mu.RLock()

@@ -16,12 +16,14 @@ export const api = {
         types: Go.GetTrackerTypes,
         projects: Go.GetTrackerProjects,
         assignees: Go.GetTrackerAssignees,
+        priorities: Go.GetTrackerPriorities,
     },
     aiSettings: {
         get: Go.GetAISettings,
         save: Go.SaveAISettings,
         listModels: Go.ListAIModels,
         test: Go.TestAISettings,
+        usage: Go.AIUsage,
     },
     templates: {
         list: Go.ListTemplates,
@@ -35,10 +37,23 @@ export const api = {
         create: Go.CreateTicket,
         getDestination: Go.GetGenerateDestination,
         saveDestination: Go.SaveGenerateDestination,
+        pickAttachments: Go.PickAttachments,
+        uploadAttachments: Go.UploadAttachments,
+        saveClipboardAttachment: Go.SaveClipboardAttachment,
+        discardClipboardAttachment: Go.DiscardClipboardAttachment,
+        attachmentPreview: Go.GetAttachmentPreview,
     },
     logs: {
         list: Go.ListLogs,
         get: Go.GetLog,
+    },
+    notes: {
+        list: Go.ListNotes,
+        create: Go.CreateNote,
+        update: Go.UpdateNote,
+        remove: Go.DeleteNote,
+        merge: Go.MergeNotes,
+        confirmMerge: Go.ConfirmMerge,
     },
     releaseNotes: {
         latest: Go.GetLatestReleaseNotes,

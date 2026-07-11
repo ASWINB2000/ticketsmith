@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"mime"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +23,7 @@ import (
 	"ticketsmith/internal/connections"
 	"ticketsmith/internal/db"
 	"ticketsmith/internal/logs"
+	"ticketsmith/internal/notes"
 	"ticketsmith/internal/prefs"
 	"ticketsmith/internal/secrets"
 	"ticketsmith/internal/templates"
@@ -39,6 +45,7 @@ type App struct {
 	logsStore        *logs.Store
 	aiConfigStore    *ai.ConfigStore
 	prefsStore       *prefs.Store
+	notesStore       *notes.Store
 
 	trackerMu    sync.Mutex
 	trackerCache map[string]tracker.Tracker
@@ -87,6 +94,7 @@ func (a *App) startup(ctx context.Context) {
 	a.logsStore = logs.NewStore(sqlDB)
 	a.aiConfigStore = ai.NewConfigStore(sqlDB)
 	a.prefsStore = prefs.NewStore(sqlDB)
+	a.notesStore = notes.NewStore(sqlDB)
 	a.trackerCache = map[string]tracker.Tracker{}
 
 	a.seedDefaultConnection()
@@ -111,15 +119,12 @@ func (a *App) WindowReady() {
 }
 
 // checkForUpdatesOnStartup checks GitHub Releases for a newer version in the
-// background on every launch. It never downloads, applies, or pops any
-// dialog on its own — a blocking "update available" prompt on every launch
-// until the user acts on it would be exactly the kind of nag a single-user
-// utility shouldn't inflict. If it finds an update, it just pushes an
-// "update:available" event so the frontend can flip its "Check for updates"
-// button into an "Update available" state (badge, no interruption). The
-// user re-checks whenever they click it — see CheckForUpdates below — so
-// what they actually see is never a stale snapshot of this signal. Silent
-// if already up to date or if the check fails.
+// background on every launch. It never downloads or applies anything on its
+// own, but if it finds an update it does push the full UpdateInfo via an
+// "update:available" event, which the frontend uses to pop the update dialog
+// once per launch (and to keep the sidebar's "Update available" state lit
+// until the user actually installs, even if they dismiss the dialog with
+// "Not now"). Silent if already up to date or if the check fails.
 func (a *App) checkForUpdatesOnStartup() {
 	info, err := updater.Check(a.ctx, a.updaterConfig())
 	if err != nil {
@@ -127,7 +132,7 @@ func (a *App) checkForUpdatesOnStartup() {
 		return
 	}
 	if info != nil {
-		wailsruntime.EventsEmit(a.ctx, "update:available")
+		wailsruntime.EventsEmit(a.ctx, "update:available", info)
 	}
 }
 
@@ -242,33 +247,44 @@ var defaultTemplates = []templates.Template{
 			{Name: "synopsis", Label: "Synopsis", Type: "textarea"},
 			{Name: "acceptanceCriteria", Label: "Acceptance Criteria", Type: "textarea"},
 		},
-		AIInstructions: "Extract a user story from the raw input. Write a short, " +
-			"descriptive subject (e.g. \"Managing Products\"). The description should " +
-			"open with the story in \"As a <role>, I should be able to <capability> so " +
-			"that <benefit>\" form, followed by the detailed requirements/behavior as a " +
-			"bulleted or numbered breakdown. Fill in Pre-Condition with what must already " +
-			"be true for the story to apply (e.g. required signup/login state), Synopsis " +
-			"with a one- or two-sentence restatement of the story's goal, and Acceptance " +
-			"Criteria with the concrete, testable conditions that confirm the story is " +
-			"done. Leave a field blank rather than guessing if the input doesn't cover it.",
+		AIInstructions: "Extract a thorough, well-elaborated user story from the raw input — never " +
+			"compress it into a single line. Write a short, descriptive subject (e.g. \"Managing " +
+			"Products\"). The description should open with the story in \"As a <role>, I should be able " +
+			"to <capability> so that <benefit>\" form, followed by a detailed breakdown of the " +
+			"requirements and behavior as a bulleted or numbered list — cover every distinct capability " +
+			"or rule mentioned in the input, not just the headline one. Fill in Pre-Condition with the " +
+			"full state that must already be true for the story to apply (required role/signup/login " +
+			"state, existing data, prior setup), written as complete sentences rather than a single term. " +
+			"Synopsis should be a substantive paragraph (not one sentence) restating the story's goal and " +
+			"its value to the user. Acceptance Criteria should be a numbered list of concrete, testable " +
+			"conditions — each one specific enough that someone could verify it without re-reading the " +
+			"raw input. Leave a field blank rather than guessing if the input doesn't cover it.",
 	},
 	{
 		Name:            "Bug",
 		TrackerTypeName: "Bug",
 		FieldsSchema: []templates.Field{
-			{Name: "testData", Label: "Test Data", Type: "textarea"},
+			{Name: "preconditions", Label: "Preconditions", Type: "textarea"},
 			{Name: "stepsToReproduce", Label: "Steps to Reproduce", Type: "textarea"},
+			{Name: "testData", Label: "Test Data", Type: "textarea"},
 			{Name: "expectedResult", Label: "Expected Result", Type: "textarea"},
 			{Name: "actualResult", Label: "Actual Result", Type: "textarea"},
 		},
-		AIInstructions: "Extract a clear, reproducible bug report from the raw input. " +
-			"Write a concise subject naming the defect and the affected area (e.g. " +
-			"\"Archived Count Not Displayed in Dashboard Summary Cards\"). The " +
-			"description should briefly explain what's wrong and where. Fill in Test " +
-			"Data with any affected component/data/module details called out in the " +
-			"input, Steps to Reproduce as a numbered list, and Expected Result / Actual " +
-			"Result as short, contrasting statements. Leave a field blank rather than " +
-			"guessing if the input doesn't cover it.",
+		AIInstructions: "Extract a clear, thorough, reproducible bug report from the raw " +
+			"input, written with the density and precision of a professional QA bug " +
+			"ticket — never compress it down to a single line. Write a concise subject " +
+			"naming the defect and the affected area (e.g. \"Archived Count Not " +
+			"Displayed in Dashboard Summary Cards\"). The description should be a full " +
+			"paragraph that explains what's wrong, where it happens, what behavior was " +
+			"expected instead, and any relevant context or impact — not just a one-line " +
+			"label. Fill in Preconditions with the state that must already be true for " +
+			"the bug to be observed (user role, existing data/setup, screen/viewport, " +
+			"etc.), Steps to Reproduce as a detailed numbered list precise enough for " +
+			"someone unfamiliar with the report to reproduce it exactly, Test Data with " +
+			"any specific field values, components, or configurations called out in the " +
+			"input, and Expected Result / Actual Result as full contrasting sentences " +
+			"(not fragments or single words) describing correct vs. observed behavior. " +
+			"Leave a field blank rather than guessing if the input doesn't cover it.",
 	},
 	{
 		Name:            "Task",
@@ -277,14 +293,17 @@ var defaultTemplates = []templates.Template{
 			{Name: "scope", Label: "Scope", Type: "textarea"},
 			{Name: "expectedBehavior", Label: "Expected Behavior", Type: "textarea"},
 		},
-		AIInstructions: "Extract a clear, actionable engineering task from the raw " +
-			"input. Write a concise subject describing the work to be done (e.g. " +
-			"\"Product Browsing & Discovery UI Implementation - WEB\"). The description " +
-			"should summarize the feature/module and its functionality. Fill in Scope " +
-			"with the module(s) and functionality boundaries covered by the task, and " +
-			"Expected Behavior with what the system should do once the task is complete, " +
-			"as a bulleted breakdown when the input lists multiple behaviors. Leave a " +
-			"field blank rather than guessing if the input doesn't cover it.",
+		AIInstructions: "Extract a clear, thorough, actionable engineering task from the raw input — " +
+			"never compress it into a single line. Write a concise subject describing the work to be " +
+			"done (e.g. \"Product Browsing & Discovery UI Implementation - WEB\"). The description " +
+			"should be a full paragraph (or more) explaining the feature/module, its functionality, and " +
+			"any context or motivation given in the input — not a one-line summary. Fill in Scope with a " +
+			"detailed account of the module(s) and functionality boundaries covered by the task, " +
+			"including what's explicitly out of scope if the input says so, and Expected Behavior with a " +
+			"thorough description of what the system should do once the task is complete — as a numbered " +
+			"or bulleted breakdown covering every distinct behavior mentioned in the input, each written " +
+			"as a full sentence rather than a fragment. Leave a field blank rather than guessing if the " +
+			"input doesn't cover it.",
 	},
 }
 
@@ -408,6 +427,14 @@ func (a *App) GetTrackerAssignees(connectionID, projectID string) ([]tracker.Use
 	return t.GetAssignees(a.ctx, projectID)
 }
 
+func (a *App) GetTrackerPriorities(connectionID string) ([]tracker.Priority, error) {
+	t, err := a.trackerFor(connectionID)
+	if err != nil {
+		return nil, err
+	}
+	return t.GetPriorities(a.ctx)
+}
+
 // ----- Connect screen: AI provider settings -----
 
 func (a *App) GetAISettings() (AISettingsView, error) {
@@ -450,7 +477,8 @@ func (a *App) ListAIModels(baseURL, apiKey string) ([]string, error) {
 }
 
 // TestAISettings verifies the given (or partially-saved) AI provider settings
-// actually work, without spending a completion token.
+// actually work. Prefers a free GET /models check; only falls back to
+// spending a completion token if the provider doesn't support that.
 func (a *App) TestAISettings(baseURL, model, apiKey string) error {
 	key, err := a.resolveAIKey(apiKey)
 	if err != nil {
@@ -460,6 +488,18 @@ func (a *App) TestAISettings(baseURL, model, apiKey string) error {
 		return fmt.Errorf("connection test failed: %w", err)
 	}
 	return nil
+}
+
+// AIUsage fetches best-effort rate-limit/usage info for the given (or
+// partially-saved) AI provider settings. Not every OpenAI-compatible
+// provider reports this — check Usage.Supported before trusting the
+// numeric fields.
+func (a *App) AIUsage(baseURL, model, apiKey string) (openaicompat.Usage, error) {
+	key, err := a.resolveAIKey(apiKey)
+	if err != nil {
+		return openaicompat.Usage{}, err
+	}
+	return openaicompat.New(baseURL, key, model).Usage(a.ctx)
 }
 
 // ----- Templates screen -----
@@ -590,7 +630,9 @@ func (a *App) orderedFieldValues(logID string, fields map[string]string) ([]trac
 
 // CreateTicket submits the (possibly user-edited) structured ticket to the
 // tracker and mutates the same log row in place with the final result.
-func (a *App) CreateTicket(logID, connectionID, projectID, typeID string, ticket ai.StructuredTicket, parentID, assigneeID string) (tracker.Ticket, error) {
+// priorityID, startDate, and dueDate are optional (blank means "leave to
+// tracker default").
+func (a *App) CreateTicket(logID, connectionID, projectID, typeID string, ticket ai.StructuredTicket, parentID, assigneeID, priorityID, startDate, dueDate string) (tracker.Ticket, error) {
 	t, err := a.trackerFor(connectionID)
 	if err != nil {
 		return tracker.Ticket{}, err
@@ -607,6 +649,9 @@ func (a *App) CreateTicket(logID, connectionID, projectID, typeID string, ticket
 		Fields:      fields,
 		ParentID:    parentID,
 		AssigneeID:  assigneeID,
+		PriorityID:  priorityID,
+		StartDate:   startDate,
+		DueDate:     dueDate,
 	}
 
 	result, createErr := t.CreateTicket(a.ctx, projectID, typeID, input)
@@ -629,6 +674,137 @@ func (a *App) CreateTicket(logID, connectionID, projectID, typeID string, ticket
 	return result, nil
 }
 
+// PickAttachments opens a native "choose files" dialog restricted to common
+// image/video types and returns the selected absolute paths (empty if the
+// user cancels). Reading the files happens later in UploadAttachments — this
+// only collects the paths so the frontend can list what's staged.
+func (a *App) PickAttachments() ([]string, error) {
+	paths, err := wailsruntime.OpenMultipleFilesDialog(a.ctx, wailsruntime.OpenDialogOptions{
+		Title: "Attach images or videos",
+		Filters: []wailsruntime.FileFilter{
+			{
+				DisplayName: "Images and videos",
+				Pattern:     "*.png;*.jpg;*.jpeg;*.gif;*.webp;*.heic;*.bmp;*.mp4;*.mov;*.webm;*.avi;*.mkv",
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("app: pick attachments: %w", err)
+	}
+	if paths == nil {
+		return []string{}, nil
+	}
+	return paths, nil
+}
+
+// maxAttachmentPreviewBytes bounds GetAttachmentPreview so a large picked
+// file doesn't get fully base64-encoded and shipped across the IPC bridge
+// just to render a thumbnail.
+const maxAttachmentPreviewBytes = 8 * 1024 * 1024
+
+// GetAttachmentPreview reads an image file already staged in the attachments
+// list and returns it as a data: URL for the frontend to render as a
+// thumbnail. Only meant to be called for image paths — the frontend already
+// knows from the extension whether a path is a video and shows a generic
+// icon for those instead, so this doesn't need to distinguish kinds itself.
+func (a *App) GetAttachmentPreview(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("app: stat attachment: %w", err)
+	}
+	if info.Size() > maxAttachmentPreviewBytes {
+		return "", fmt.Errorf("app: %q is too large to preview", filepath.Base(path))
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("app: read attachment: %w", err)
+	}
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data), nil
+}
+
+// UploadAttachments reads each file at paths from disk and attaches it to an
+// already-created ticket. Called after CreateTicket succeeds; attachments are
+// optional, so a failure here is reported but doesn't undo the ticket. Errors
+// from individual files are joined so the caller can report all failures at
+// once rather than stopping at the first. Temp files created by
+// SaveClipboardAttachment are cleaned up after a successful upload.
+func (a *App) UploadAttachments(connectionID, ticketID string, paths []string) error {
+	t, err := a.trackerFor(connectionID)
+	if err != nil {
+		return err
+	}
+
+	var errs []error
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("read %q: %w", filepath.Base(p), err))
+			continue
+		}
+		contentType := mime.TypeByExtension(filepath.Ext(p))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		if err := t.UploadAttachment(a.ctx, ticketID, filepath.Base(p), contentType, data); err != nil {
+			errs = append(errs, fmt.Errorf("upload %q: %w", filepath.Base(p), err))
+			continue
+		}
+		a.discardIfClipboardTemp(p)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("app: upload attachments: %w", errors.Join(errs...))
+	}
+	return nil
+}
+
+// clipboardAttachmentPrefix marks temp files SaveClipboardAttachment creates,
+// so cleanup logic can recognize and remove them without ever touching a
+// real file-picker path that happens to live elsewhere on disk.
+const clipboardAttachmentPrefix = "ticketsmith-clip-"
+
+// SaveClipboardAttachment writes a pasted image/video (base64-encoded by the
+// frontend from clipboard data, which has no path on disk) to a temp file and
+// returns its path, so it can be staged in the same attachments list as
+// files picked via PickAttachments and uploaded the same way.
+func (a *App) SaveClipboardAttachment(base64Data, suggestedName string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return "", fmt.Errorf("app: decode clipboard attachment: %w", err)
+	}
+
+	ext := filepath.Ext(suggestedName)
+	if ext == "" {
+		ext = ".png"
+	}
+	f, err := os.CreateTemp("", clipboardAttachmentPrefix+"*"+ext)
+	if err != nil {
+		return "", fmt.Errorf("app: create temp file: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return "", fmt.Errorf("app: write temp file: %w", err)
+	}
+	return f.Name(), nil
+}
+
+// DiscardClipboardAttachment removes a temp file created by
+// SaveClipboardAttachment — called when the user removes a pasted attachment
+// before creating the ticket. A no-op for file-picker paths.
+func (a *App) DiscardClipboardAttachment(path string) {
+	a.discardIfClipboardTemp(path)
+}
+
+func (a *App) discardIfClipboardTemp(path string) {
+	if strings.HasPrefix(filepath.Base(path), clipboardAttachmentPrefix) {
+		os.Remove(path)
+	}
+}
+
 // ----- Logs screen -----
 
 func (a *App) ListLogs(filter logs.Filter) ([]logs.LogEntry, error) {
@@ -637,4 +813,59 @@ func (a *App) ListLogs(filter logs.Filter) ([]logs.LogEntry, error) {
 
 func (a *App) GetLog(id string) (logs.LogEntry, error) {
 	return a.logsStore.Get(a.ctx, id)
+}
+
+// ----- Notes screen -----
+
+func (a *App) ListNotes() ([]notes.Note, error) {
+	return a.notesStore.List(a.ctx)
+}
+
+func (a *App) CreateNote(title, content string) (notes.Note, error) {
+	return a.notesStore.Create(a.ctx, title, content)
+}
+
+func (a *App) UpdateNote(id, title, content string) (notes.Note, error) {
+	return a.notesStore.Update(a.ctx, id, title, content)
+}
+
+func (a *App) DeleteNote(id string) error {
+	return a.notesStore.Delete(a.ctx, id)
+}
+
+// MergeNotes runs Rephrase over the given notes' current content and
+// returns the draft for the frontend's editable preview. It does not
+// persist anything — see ConfirmMerge for that.
+func (a *App) MergeNotes(noteIDs []string) (string, error) {
+	if len(noteIDs) == 0 {
+		return "", fmt.Errorf("app: merge requires at least one note")
+	}
+
+	contents := make([]string, 0, len(noteIDs))
+	for _, id := range noteIDs {
+		n, err := a.notesStore.Get(a.ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("app: get note %q: %w", id, err)
+		}
+		contents = append(contents, n.Content)
+	}
+
+	provider, err := a.aiProvider()
+	if err != nil {
+		return "", err
+	}
+	draft, err := provider.Rephrase(a.ctx, contents)
+	if err != nil {
+		return "", fmt.Errorf("app: rephrase notes: %w", err)
+	}
+	return draft, nil
+}
+
+// ConfirmMerge persists a merge: creates a new note with finalContent and
+// merged_from_ids set to noteIDs, and marks each source note 'merged'.
+func (a *App) ConfirmMerge(noteIDs []string, title, finalContent string) (notes.Note, error) {
+	if len(noteIDs) == 0 {
+		return notes.Note{}, fmt.Errorf("app: merge requires at least one note")
+	}
+	return a.notesStore.CreateMerged(a.ctx, noteIDs, title, finalContent)
 }

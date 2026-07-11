@@ -19,4 +19,8 @@ type StructuredTicket struct {
 // Provider generates a StructuredTicket from a template and freeform raw input.
 type Provider interface {
 	GenerateTicket(ctx context.Context, template templates.Template, rawInput string) (StructuredTicket, error)
+
+	// Rephrase combines one or more freeform notes into a single coherent
+	// draft — plain text in, plain text out, no structured schema.
+	Rephrase(ctx context.Context, notes []string) (string, error)
 }

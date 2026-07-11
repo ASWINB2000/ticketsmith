@@ -1,15 +1,16 @@
 import {useEffect, useState, type ComponentType} from 'react'
 import {cn} from '@/lib/utils'
-import {Wand2Icon, LayoutTemplateIcon, Plug2Icon, ScrollTextIcon, CircleHelpIcon} from 'lucide-react'
+import {Wand2Icon, LayoutTemplateIcon, Plug2Icon, ScrollTextIcon, CircleHelpIcon, NotebookPenIcon} from 'lucide-react'
 import logo from '@/assets/images/logo-universal.png'
 import {UpdateControl} from '@/components/UpdateControl'
 import {ReleaseNotesButton} from '@/components/ReleaseNotesButton'
 import {Version} from '../../../wailsjs/go/main/App'
 
-export type ScreenKey = 'connect' | 'generate' | 'templates' | 'logs' | 'help'
+export type ScreenKey = 'connect' | 'generate' | 'notes' | 'templates' | 'logs' | 'help'
 
 const SCREENS: { key: ScreenKey; label: string; icon: ComponentType<{ className?: string }> }[] = [
     {key: 'generate', label: 'Generate', icon: Wand2Icon},
+    {key: 'notes', label: 'Notes', icon: NotebookPenIcon},
     {key: 'templates', label: 'Templates', icon: LayoutTemplateIcon},
     {key: 'connect', label: 'Connect', icon: Plug2Icon},
     {key: 'logs', label: 'Logs', icon: ScrollTextIcon},

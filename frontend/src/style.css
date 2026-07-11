@@ -135,3 +135,54 @@
     @apply font-sans;
     }
 }
+
+/*
+ * Tailwind's preflight strips list markers/indent, and Tiptap's Task List
+ * and Placeholder extensions rely on this exact structure/attribute
+ * contract (see their docs) rather than shipping their own CSS.
+ */
+@layer base {
+  .tiptap-note {
+    outline: none;
+  }
+  .tiptap-note p {
+    margin: 0;
+  }
+  .tiptap-note p + p {
+    margin-top: 0.5em;
+  }
+  .tiptap-note ul,
+  .tiptap-note ol {
+    margin: 0.25em 0;
+    padding-left: 1.25em;
+  }
+  .tiptap-note ul {
+    list-style: disc;
+  }
+  .tiptap-note ol {
+    list-style: decimal;
+  }
+  .tiptap-note ul[data-type='taskList'] {
+    list-style: none;
+    padding-left: 0;
+  }
+  .tiptap-note ul[data-type='taskList'] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5em;
+  }
+  .tiptap-note ul[data-type='taskList'] li > label {
+    margin-top: 0.15em;
+    user-select: none;
+  }
+  .tiptap-note ul[data-type='taskList'] li > div {
+    flex: 1;
+  }
+  .tiptap-note p.is-editor-empty:first-child::before {
+    float: left;
+    height: 0;
+    color: var(--muted-foreground);
+    content: attr(data-placeholder);
+    pointer-events: none;
+  }
+}

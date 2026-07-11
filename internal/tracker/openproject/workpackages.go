@@ -19,6 +19,7 @@ type wpLinks struct {
 	Type     *wpLinkRef `json:"type,omitempty"`
 	Assignee *wpLinkRef `json:"assignee,omitempty"`
 	Parent   *wpLinkRef `json:"parent,omitempty"`
+	Priority *wpLinkRef `json:"priority,omitempty"`
 }
 
 type wpDescription struct {
@@ -29,6 +30,8 @@ type wpDescription struct {
 type createWorkPackageRequest struct {
 	Subject     string        `json:"subject"`
 	Description wpDescription `json:"description"`
+	StartDate   string        `json:"startDate,omitempty"`
+	DueDate     string        `json:"dueDate,omitempty"`
 	Links       wpLinks       `json:"_links"`
 }
 
@@ -66,10 +69,15 @@ func (c *Client) CreateTicket(ctx context.Context, projectID, typeID string, inp
 	if input.ParentID != "" {
 		links.Parent = &wpLinkRef{Href: "/api/v3/work_packages/" + input.ParentID}
 	}
+	if input.PriorityID != "" {
+		links.Priority = &wpLinkRef{Href: "/api/v3/priorities/" + input.PriorityID}
+	}
 
 	body := createWorkPackageRequest{
 		Subject:     input.Subject,
 		Description: wpDescription{Format: "markdown", Raw: description},
+		StartDate:   input.StartDate,
+		DueDate:     input.DueDate,
 		Links:       links,
 	}
 

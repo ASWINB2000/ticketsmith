@@ -3,11 +3,12 @@ import {toast} from 'sonner'
 import {connections} from '../../wailsjs/go/models'
 import {api} from '@/lib/api'
 import {useConnections} from '@/lib/connections'
-import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/components/ui/card'
+import {Card, CardContent, CardHeader, CardTitle, CardDescription, CardAction} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetBody, SheetFooter} from '@/components/ui/sheet'
+import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription} from '@/components/ui/dialog'
 import {FormField} from '@/components/FormField'
 import {DataTable, type DataTableColumn} from '@/components/DataTable'
 import {ConfirmDialog} from '@/components/ConfirmDialog'
@@ -16,9 +17,26 @@ import {PageHeader} from '@/components/Layout/PageHeader'
 import {StatusBadge} from '@/components/StatusBadge'
 import {Badge} from '@/components/ui/badge'
 import {cn} from '@/lib/utils'
-import {PlusIcon, FolderKanbanIcon, BotIcon, Plug2Icon, RefreshCwIcon, PlugZapIcon} from 'lucide-react'
-import {JiraIcon, AzureDevOpsIcon} from '@/components/BrandIcons'
+import {PlusIcon, BotIcon, Plug2Icon, RefreshCwIcon, PlugZapIcon, GaugeIcon} from 'lucide-react'
+import {JiraIcon, AzureDevOpsIcon, OpenProjectIcon} from '@/components/BrandIcons'
+import {openaicompat} from '../../wailsjs/go/models'
 import type {ComponentType} from 'react'
+
+function UsageBar({label, remaining, limit}: {label: string; remaining: number; limit: number}) {
+    const used = Math.max(limit - remaining, 0)
+    const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0
+    return (
+        <div className="grid gap-1.5">
+            <div className="flex items-center justify-between text-sm">
+                <span className="font-medium">{label}</span>
+                <span className="text-muted-foreground">{remaining.toLocaleString()} / {limit.toLocaleString()} remaining</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary" style={{width: `${pct}%`}} />
+            </div>
+        </div>
+    )
+}
 
 type Connection = connections.Connection
 
@@ -29,7 +47,7 @@ const TRACKER_KINDS: {
     tint: string
     enabled: boolean
 }[] = [
-    {value: 'openproject', label: 'OpenProject', icon: FolderKanbanIcon, tint: 'text-emerald-600 bg-emerald-500/12', enabled: true},
+    {value: 'openproject', label: 'OpenProject', icon: OpenProjectIcon, tint: 'text-sky-700 bg-sky-600/10', enabled: true},
     {value: 'jira', label: 'Jira', icon: JiraIcon, tint: 'text-blue-700 bg-blue-600/10', enabled: false},
     {value: 'azuredevops', label: 'Azure DevOps', icon: AzureDevOpsIcon, tint: 'text-sky-700 bg-sky-600/10', enabled: false},
 ]
@@ -93,6 +111,10 @@ export function Connect() {
     const [aiFetchingModels, setAiFetchingModels] = useState(false)
     const [aiTesting, setAiTesting] = useState(false)
     const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+    const [aiUsageOpen, setAiUsageOpen] = useState(false)
+    const [aiUsageLoading, setAiUsageLoading] = useState(false)
+    const [aiUsage, setAiUsage] = useState<openaicompat.Usage | null>(null)
+    const [aiUsageError, setAiUsageError] = useState<string | null>(null)
 
     useEffect(() => {
         api.aiSettings.get().then((s) => {
@@ -205,6 +227,21 @@ export function Connect() {
         }
     }
 
+    const checkAiUsage = async () => {
+        setAiUsageOpen(true)
+        setAiUsageLoading(true)
+        setAiUsage(null)
+        setAiUsageError(null)
+        try {
+            const usage = await api.aiSettings.usage(aiForm.baseUrl, aiForm.model, aiForm.apiKey)
+            setAiUsage(usage)
+        } catch (err) {
+            setAiUsageError(`${err}`)
+        } finally {
+            setAiUsageLoading(false)
+        }
+    }
+
     const columns: DataTableColumn<Connection>[] = [
         {key: 'name', header: 'Name', render: (c) => <span className="font-medium">{c.name}</span>},
         {
@@ -281,6 +318,16 @@ export function Connect() {
                             OpenAI-compatible endpoint used to generate tickets.
                             {aiHasKey && <span className="ml-1 font-medium text-foreground">An API key is currently saved.</span>}
                         </CardDescription>
+                        <CardAction>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!aiForm.baseUrl || !aiForm.model}
+                                onClick={checkAiUsage}
+                            >
+                                <GaugeIcon /> Usage
+                            </Button>
+                        </CardAction>
                     </CardHeader>
                     <CardContent className="grid gap-4">
                         <div className="grid gap-4 sm:grid-cols-2">
@@ -415,6 +462,32 @@ export function Connect() {
                     </SheetFooter>
                 </SheetContent>
             </Sheet>
+
+            <Dialog open={aiUsageOpen} onOpenChange={setAiUsageOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>AI usage</DialogTitle>
+                        <DialogDescription>Rate-limit info reported by the provider's most recent response.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-2">
+                        {aiUsageLoading && <p className="text-sm text-muted-foreground">Checking…</p>}
+                        {!aiUsageLoading && aiUsageError && (
+                            <p className="text-sm text-destructive">Couldn't fetch usage: {aiUsageError}</p>
+                        )}
+                        {!aiUsageLoading && !aiUsageError && aiUsage && !aiUsage.supported && (
+                            <p className="text-sm text-muted-foreground">
+                                The current configuration doesn't support this feature.
+                            </p>
+                        )}
+                        {!aiUsageLoading && !aiUsageError && aiUsage?.supported && (
+                            <>
+                                <UsageBar label="Requests" remaining={aiUsage.requestsRemaining} limit={aiUsage.requestsLimit} />
+                                <UsageBar label="Tokens" remaining={aiUsage.tokensRemaining} limit={aiUsage.tokensLimit} />
+                            </>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

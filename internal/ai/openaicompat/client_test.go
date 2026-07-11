@@ -106,6 +106,76 @@ func TestGenerateTicketErrorsOnNon2xx(t *testing.T) {
 	}
 }
 
+func TestRephraseSendsExpectedRequestAndParsesResponse(t *testing.T) {
+	var captured chatRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("path = %q, want /chat/completions", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"  Combined draft text.  "}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "sk-test", "llama-3.1-8b-instant")
+	draft, err := c.Rephrase(context.Background(), []string{"first note", "second note"})
+	if err != nil {
+		t.Fatalf("Rephrase: %v", err)
+	}
+	if draft != "Combined draft text." {
+		t.Errorf("draft = %q", draft)
+	}
+
+	if captured.ResponseFormat != nil {
+		t.Errorf("ResponseFormat = %+v, want nil (omitted)", captured.ResponseFormat)
+	}
+	if len(captured.Messages) != 2 {
+		t.Fatalf("Messages len = %d, want 2", len(captured.Messages))
+	}
+	user := captured.Messages[1].Content
+	if !strings.Contains(user, "Note 1:") || !strings.Contains(user, "Note 2:") {
+		t.Errorf("user message missing numbered notes: %q", user)
+	}
+	if !strings.Contains(user, "first note") || !strings.Contains(user, "second note") {
+		t.Errorf("user message missing note contents: %q", user)
+	}
+}
+
+func TestRephraseSingleNoteOmitsNumbering(t *testing.T) {
+	var captured chatRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Write([]byte(`{"choices":[{"message":{"content":"cleaned up note"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "sk-test", "model")
+	if _, err := c.Rephrase(context.Background(), []string{"a single messy note"}); err != nil {
+		t.Fatalf("Rephrase: %v", err)
+	}
+
+	if captured.Messages[1].Content != "a single messy note" {
+		t.Errorf("user message = %q, want the note verbatim with no numbering", captured.Messages[1].Content)
+	}
+}
+
+func TestRephraseErrorsOnEmptyInput(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("expected no HTTP call for empty input")
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "sk-test", "model")
+	if _, err := c.Rephrase(context.Background(), nil); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
 func TestGenerateTicketErrorsOnMalformedJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"choices":[{"message":{"content":"not json at all"}}]}`))

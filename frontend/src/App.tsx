@@ -3,20 +3,28 @@ import {Sidebar, type ScreenKey} from '@/components/Layout/Sidebar'
 import {Toaster} from '@/components/ui/sonner'
 import {ConnectionsProvider} from '@/lib/connections'
 import {api} from '@/lib/api'
+import type {NotesPrefill} from '@/lib/notesPrefill'
 import {Connect} from '@/screens/Connect'
 import {Generate} from '@/screens/Generate'
+import {Notes} from '@/screens/Notes'
 import {Templates} from '@/screens/Templates'
 import {Logs} from '@/screens/Logs'
 import {Help} from '@/screens/Help'
 
 function App() {
     const [screen, setScreen] = useState<ScreenKey>('generate')
+    const [notesPrefill, setNotesPrefill] = useState<NotesPrefill | null>(null)
 
     // The native window starts hidden (see main.go) so it never shows a
     // blank/stale frame before this first render lands; reveal it now.
     useEffect(() => {
         api.windowReady()
     }, [])
+
+    const convertNoteToGenerate = (prefill: NotesPrefill) => {
+        setNotesPrefill(prefill)
+        setScreen('generate')
+    }
 
     return (
         <ConnectionsProvider>
@@ -30,9 +38,14 @@ function App() {
                         on navigation instead of floating over the next screen (Sheets
                         render via a portal, so hiding an ancestor alone wouldn't hide them). */}
                     <div className={screen === 'generate' ? 'contents' : 'hidden'}>
-                        <Generate active={screen === 'generate'} />
+                        <Generate
+                            active={screen === 'generate'}
+                            prefill={notesPrefill}
+                            onPrefillConsumed={() => setNotesPrefill(null)}
+                        />
                     </div>
                     {screen === 'connect' && <Connect />}
+                    {screen === 'notes' && <Notes onConvertToGenerate={convertNoteToGenerate} />}
                     {screen === 'templates' && <Templates />}
                     {screen === 'logs' && <Logs />}
                     {screen === 'help' && <Help />}

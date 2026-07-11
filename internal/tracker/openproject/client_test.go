@@ -68,6 +68,34 @@ func TestGetProjectsParsesIdentifier(t *testing.T) {
 	}
 }
 
+func TestGetPrioritiesParsesAndCaches(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/api/v3/priorities" {
+			t.Errorf("path = %q, want /api/v3/priorities", r.URL.Path)
+		}
+		w.Write([]byte(`{"_embedded":{"elements":[{"id":7,"name":"Low"},{"id":8,"name":"High"}]}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	priorities, err := c.GetPriorities(context.Background())
+	if err != nil {
+		t.Fatalf("GetPriorities: %v", err)
+	}
+	if len(priorities) != 2 || priorities[0].Name != "Low" || priorities[1].ID != "8" {
+		t.Fatalf("unexpected priorities: %+v", priorities)
+	}
+
+	if _, err := c.GetPriorities(context.Background()); err != nil {
+		t.Fatalf("second GetPriorities: %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("server was called %d times, want 1 (cache not used)", calls)
+	}
+}
+
 func TestGetAssigneesCachesPerProject(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

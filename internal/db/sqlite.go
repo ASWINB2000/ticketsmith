@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS generate_prefs (
   project_id TEXT NOT NULL DEFAULT '',
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS notes (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  merged_from_ids TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // DefaultPath returns the OS-appropriate path to the Ticketsmith SQLite

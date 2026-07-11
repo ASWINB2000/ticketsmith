@@ -13,6 +13,7 @@ import (
 	"ticketsmith/internal/connections"
 	"ticketsmith/internal/db"
 	"ticketsmith/internal/logs"
+	"ticketsmith/internal/notes"
 	"ticketsmith/internal/secrets"
 	"ticketsmith/internal/templates"
 	"ticketsmith/internal/tracker"
@@ -36,6 +37,7 @@ func newIsolatedApp(t *testing.T) *App {
 		templatesStore:   templates.NewStore(sqlDB),
 		logsStore:        logs.NewStore(sqlDB),
 		aiConfigStore:    ai.NewConfigStore(sqlDB),
+		notesStore:       notes.NewStore(sqlDB),
 		trackerCache:     map[string]tracker.Tracker{},
 	}
 }

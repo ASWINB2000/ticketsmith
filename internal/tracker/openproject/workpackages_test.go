@@ -101,6 +101,37 @@ func TestCreateTicketPreservesFieldOrder(t *testing.T) {
 	}
 }
 
+func TestCreateTicketIncludesPriorityAndDates(t *testing.T) {
+	var captured createWorkPackageRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	_, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
+		Subject:     "With priority and dates",
+		Description: "Summary.",
+		PriorityID:  "8",
+		StartDate:   "2026-07-15",
+		DueDate:     "2026-08-01",
+	})
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+	if captured.Links.Priority == nil || captured.Links.Priority.Href != "/api/v3/priorities/8" {
+		t.Errorf("Links.Priority = %+v", captured.Links.Priority)
+	}
+	if captured.StartDate != "2026-07-15" {
+		t.Errorf("StartDate = %q, want 2026-07-15", captured.StartDate)
+	}
+	if captured.DueDate != "2026-08-01" {
+		t.Errorf("DueDate = %q, want 2026-08-01", captured.DueDate)
+	}
+}
+
 func TestCreateTicketOmitsOptionalLinksWhenEmpty(t *testing.T) {
 	var captured createWorkPackageRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,5 +157,11 @@ func TestCreateTicketOmitsOptionalLinksWhenEmpty(t *testing.T) {
 	}
 	if captured.Description.Raw != "No extras." {
 		t.Errorf("Description.Raw = %q, want unchanged description", captured.Description.Raw)
+	}
+	if captured.Links.Priority != nil {
+		t.Errorf("Links.Priority = %+v, want nil", captured.Links.Priority)
+	}
+	if captured.DueDate != "" {
+		t.Errorf("DueDate = %q, want empty", captured.DueDate)
 	}
 }
