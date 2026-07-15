@@ -21,21 +21,23 @@ type Client struct {
 	token   string
 	http    *http.Client
 
-	mu              sync.RWMutex
-	typesCache      []tracker.TicketType
-	projectsCache   []tracker.Project
-	assigneesCache  map[string][]tracker.User
-	prioritiesCache []tracker.Priority
+	mu                sync.RWMutex
+	typesCache        []tracker.TicketType
+	projectsCache     []tracker.Project
+	assigneesCache    map[string][]tracker.User
+	prioritiesCache   []tracker.Priority
+	customFieldsCache map[string][]tracker.CustomFieldSchema
 }
 
 // NewClient constructs an OpenProject client. baseURL is the root of the
 // OpenProject instance (e.g. "https://projects.example.com").
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		baseURL:        strings.TrimRight(baseURL, "/"),
-		token:          token,
-		http:           &http.Client{},
-		assigneesCache: map[string][]tracker.User{},
+		baseURL:           strings.TrimRight(baseURL, "/"),
+		token:             token,
+		http:              &http.Client{},
+		assigneesCache:    map[string][]tracker.User{},
+		customFieldsCache: map[string][]tracker.CustomFieldSchema{},
 	}
 }
 
@@ -48,6 +50,7 @@ func (c *Client) InvalidateCache() {
 	c.projectsCache = nil
 	c.assigneesCache = map[string][]tracker.User{}
 	c.prioritiesCache = nil
+	c.customFieldsCache = map[string][]tracker.CustomFieldSchema{}
 }
 
 type opErrorBody struct {

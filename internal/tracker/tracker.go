@@ -30,6 +30,17 @@ type Priority struct {
 	Name string `json:"name"`
 }
 
+// CustomFieldSchema describes one tracker-defined custom field available on
+// a given project+type combination (e.g. an OpenProject "customFieldN").
+// Only field types the adapter knows how to populate from a plain string
+// value are surfaced here — see the adapter's discovery logic for the
+// current type allow-list.
+type CustomFieldSchema struct {
+	Key  string `json:"key"`  // adapter-specific identifier, e.g. "customField5"
+	Name string `json:"name"` // human-readable name, matched against template field labels
+	Type string `json:"type"` // adapter-specific type tag
+}
+
 // FieldValue is one template extraction field's value, carrying its display
 // label so trackers can render a human-readable heading instead of the raw
 // field name. Order matters: it follows the template's declared field order.
@@ -59,6 +70,11 @@ type Tracker interface {
 	GetProjects(ctx context.Context) ([]Project, error)
 	GetAssignees(ctx context.Context, projectID string) ([]User, error)
 	GetPriorities(ctx context.Context) ([]Priority, error)
+	// GetCustomFields returns the custom fields available for the given
+	// project+type combination, for template-field-to-custom-field name
+	// matching. Returning an empty slice (rather than erroring) is fine when
+	// the underlying tracker has none configured.
+	GetCustomFields(ctx context.Context, projectID, typeID string) ([]CustomFieldSchema, error)
 	CreateTicket(ctx context.Context, projectID, typeID string, input TicketInput) (Ticket, error)
 	// UploadAttachment attaches a file (already on disk, read by the caller)
 	// to an existing ticket. Optional — called after CreateTicket succeeds,

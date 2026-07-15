@@ -29,6 +29,7 @@ type Project = tracker.Project
 type TicketType = tracker.TicketType
 type User = tracker.User
 type Priority = tracker.Priority
+type CustomFieldSchema = tracker.CustomFieldSchema
 
 const NONE = '__none__'
 
@@ -70,6 +71,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
     const [types, setTypes] = useState<TicketType[]>([])
     const [assignees, setAssignees] = useState<User[]>([])
     const [priorities, setPriorities] = useState<Priority[]>([])
+    const [customFields, setCustomFields] = useState<CustomFieldSchema[]>([])
     const [projectId, setProjectId] = useState('')
     const [typeId, setTypeId] = useState('')
     const [assigneeId, setAssigneeId] = useState(NONE)
@@ -108,6 +110,13 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
     const projectName = projects.find((p) => p.id === projectId)?.name
     const configured = !!connectionId && !!projectId
     const isEdited = !!ticket && !!generatedTicket && !sameTicket(ticket, generatedTicket)
+
+    // Mirrors the case-insensitive name match CreateTicket performs
+    // server-side (internal/tracker/openproject/workpackages.go), purely so
+    // the Preview can show whether a field will land in a real tracker
+    // custom field or fall back into the description.
+    const matchedCustomField = (f: templates.Field) =>
+        customFields.find((cf) => cf.name.toLowerCase() === (f.label || f.name).toLowerCase())
 
     // Fetches a thumbnail for a newly-staged image attachment; silently leaves
     // it out of `previews` on failure (e.g. too large) so the tile falls back
@@ -256,6 +265,24 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
         const match = types.find((t) => t.name.toLowerCase() === template.trackerTypeName.toLowerCase())
         if (match) setTypeId(match.id)
     }, [template, types])
+
+    // Custom fields are scoped to a project+type combination — fetched purely
+    // so the Preview can show which extraction fields will post to a real
+    // tracker custom field vs. fall back into the description (see
+    // internal/tracker/openproject's name-matching in CreateTicket).
+    useEffect(() => {
+        if (!connectionId || !projectId || !typeId) {
+            setCustomFields([])
+            return
+        }
+        api.tracker.customFields(connectionId, projectId, typeId).then((fields) => {
+            console.log('[debug] tracker custom fields for', {projectId, typeId}, fields)
+            setCustomFields(fields)
+        }).catch((err) => {
+            setCustomFields([])
+            toast.error(`Failed to load custom fields: ${err}`)
+        })
+    }, [connectionId, projectId, typeId])
 
     const generate = async () => {
         if (!connectionId || !templateId || !rawInput.trim()) return
@@ -530,7 +557,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                             <CardTitle>Preview</CardTitle>
                             {isEdited && <Badge variant="secondary">Edited</Badge>}
                         </div>
-                        <CardDescription>Edit anything below, then create the ticket — or tweak your notes above and regenerate.</CardDescription>
+                        <CardDescription>Edit anything below, then create the ticket or tweak your notes above and regenerate.</CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-4">
                         <FormField label="Subject" htmlFor="preview-subject" required>
@@ -549,7 +576,20 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                             />
                         </FormField>
                         {template?.fieldsSchema.map((f) => (
-                            <FormField key={f.name} label={f.label || f.name} htmlFor={`preview-field-${f.name}`}>
+                            <FormField
+                                key={f.name}
+                                label={
+                                    <span className="inline-flex items-center gap-1.5">
+                                        {f.label || f.name}
+                                        {matchedCustomField(f) && (
+                                            <Badge variant="outline" className="border-transparent bg-emerald-500/12 font-normal text-emerald-600">
+                                                Custom field match
+                                            </Badge>
+                                        )}
+                                    </span>
+                                }
+                                htmlFor={`preview-field-${f.name}`}
+                            >
                                 {f.type === 'textarea' ? (
                                     <Textarea
                                         id={`preview-field-${f.name}`}

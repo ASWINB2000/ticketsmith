@@ -435,6 +435,14 @@ func (a *App) GetTrackerPriorities(connectionID string) ([]tracker.Priority, err
 	return t.GetPriorities(a.ctx)
 }
 
+func (a *App) GetTrackerCustomFields(connectionID, projectID, typeID string) ([]tracker.CustomFieldSchema, error) {
+	t, err := a.trackerFor(connectionID)
+	if err != nil {
+		return nil, err
+	}
+	return t.GetCustomFields(a.ctx, projectID, typeID)
+}
+
 // ----- Connect screen: AI provider settings -----
 
 func (a *App) GetAISettings() (AISettingsView, error) {

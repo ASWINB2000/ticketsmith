@@ -17,6 +17,7 @@ export const api = {
         projects: Go.GetTrackerProjects,
         assignees: Go.GetTrackerAssignees,
         priorities: Go.GetTrackerPriorities,
+        customFields: Go.GetTrackerCustomFields,
     },
     aiSettings: {
         get: Go.GetAISettings,

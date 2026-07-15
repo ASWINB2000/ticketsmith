@@ -14,6 +14,10 @@ import (
 func TestCreateTicketBuildsExpectedBody(t *testing.T) {
 	var captured createWorkPackageRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/projects/1/work_packages/form" {
+			w.Write([]byte(`{"_embedded":{"schema":{}}}`))
+			return
+		}
 		if r.URL.Path != "/api/v3/work_packages" || r.Method != http.MethodPost {
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -47,7 +51,7 @@ func TestCreateTicketBuildsExpectedBody(t *testing.T) {
 		t.Errorf("Description.Format = %q, want markdown", captured.Description.Format)
 	}
 	if !strings.Contains(captured.Description.Raw, "It broke badly.") ||
-		!strings.Contains(captured.Description.Raw, "## Steps to reproduce\nClick the button") {
+		!strings.Contains(captured.Description.Raw, "#### Steps to reproduce\nClick the button") {
 		t.Errorf("Description.Raw = %q", captured.Description.Raw)
 	}
 	if captured.Links.Project == nil || captured.Links.Project.Href != "/api/v3/projects/1" {
@@ -67,6 +71,10 @@ func TestCreateTicketBuildsExpectedBody(t *testing.T) {
 func TestCreateTicketPreservesFieldOrder(t *testing.T) {
 	var captured createWorkPackageRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/projects/1/work_packages/form" {
+			w.Write([]byte(`{"_embedded":{"schema":{}}}`))
+			return
+		}
 		json.NewDecoder(r.Body).Decode(&captured)
 		w.WriteHeader(http.StatusCreated)
 		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
@@ -89,10 +97,10 @@ func TestCreateTicketPreservesFieldOrder(t *testing.T) {
 	}
 
 	raw := captured.Description.Raw
-	testDataIdx := strings.Index(raw, "## Test Data")
-	stepsIdx := strings.Index(raw, "## Steps to Reproduce")
-	expectedIdx := strings.Index(raw, "## Expected Result")
-	actualIdx := strings.Index(raw, "## Actual Result")
+	testDataIdx := strings.Index(raw, "#### Test Data")
+	stepsIdx := strings.Index(raw, "#### Steps to Reproduce")
+	expectedIdx := strings.Index(raw, "#### Expected Result")
+	actualIdx := strings.Index(raw, "#### Actual Result")
 	if testDataIdx == -1 || stepsIdx == -1 || expectedIdx == -1 || actualIdx == -1 {
 		t.Fatalf("missing expected headings in Description.Raw = %q", raw)
 	}
@@ -163,5 +171,128 @@ func TestCreateTicketOmitsOptionalLinksWhenEmpty(t *testing.T) {
 	}
 	if captured.DueDate != "" {
 		t.Errorf("DueDate = %q, want empty", captured.DueDate)
+	}
+}
+
+func TestCreateTicketMapsMatchingFieldToStringCustomField(t *testing.T) {
+	var captured map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/projects/1/work_packages/form" {
+			w.Write([]byte(`{"_embedded":{"schema":{"customField5":{"type":"String","name":"Steps to reproduce"}}}}`))
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	_, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
+		Subject:     "Something broke",
+		Description: "It broke badly.",
+		Fields:      []tracker.FieldValue{{Label: "Steps to reproduce", Value: "Click the button"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	if got, _ := captured["customField5"].(string); got != "Click the button" {
+		t.Errorf("customField5 = %v, want %q", captured["customField5"], "Click the button")
+	}
+	desc, _ := captured["description"].(map[string]interface{})
+	if raw, _ := desc["raw"].(string); strings.Contains(raw, "Steps to reproduce") {
+		t.Errorf("Description.Raw = %q, matched field should not also be appended to description", raw)
+	}
+}
+
+func TestCreateTicketMapsMatchingFieldToFormattableCustomField(t *testing.T) {
+	var captured map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/projects/1/work_packages/form" {
+			w.Write([]byte(`{"_embedded":{"schema":{"customField7":{"type":"Formattable","name":"Acceptance Criteria"}}}}`))
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	// Matching is case-insensitive.
+	_, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
+		Subject:     "A story",
+		Description: "Summary.",
+		Fields:      []tracker.FieldValue{{Label: "acceptance criteria", Value: "Given/When/Then"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	cf, _ := captured["customField7"].(map[string]interface{})
+	if raw, _ := cf["raw"].(string); raw != "Given/When/Then" {
+		t.Errorf("customField7.raw = %v, want %q", cf["raw"], "Given/When/Then")
+	}
+}
+
+func TestCreateTicketFallsBackToDescriptionWhenNoCustomFieldMatches(t *testing.T) {
+	var captured map[string]interface{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/projects/1/work_packages/form" {
+			w.Write([]byte(`{"_embedded":{"schema":{"customField5":{"type":"String","name":"Unrelated Field"}}}}`))
+			return
+		}
+		json.NewDecoder(r.Body).Decode(&captured)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	_, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
+		Subject:     "Something broke",
+		Description: "It broke badly.",
+		Fields:      []tracker.FieldValue{{Label: "Steps to reproduce", Value: "Click the button"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTicket: %v", err)
+	}
+
+	if _, ok := captured["customField5"]; ok {
+		t.Errorf("customField5 should not be set, got %v", captured["customField5"])
+	}
+	desc, _ := captured["description"].(map[string]interface{})
+	if raw, _ := desc["raw"].(string); !strings.Contains(raw, "#### Steps to reproduce\nClick the button") {
+		t.Errorf("Description.Raw = %q, want unmatched field appended", raw)
+	}
+}
+
+func TestCreateTicketFallsBackToDescriptionWhenCustomFieldDiscoveryFails(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v3/projects/1/work_packages/form" {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(`{"message":"boom"}`))
+			return
+		}
+		var captured map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&captured)
+		desc, _ := captured["description"].(map[string]interface{})
+		if raw, _ := desc["raw"].(string); !strings.Contains(raw, "#### Steps to reproduce\nClick the button") {
+			t.Errorf("Description.Raw = %q, want field appended despite discovery failure", raw)
+		}
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{"id":1,"_links":{"self":{"href":"/api/v3/work_packages/1"}}}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "tok")
+	_, err := c.CreateTicket(context.Background(), "1", "2", tracker.TicketInput{
+		Subject:     "Something broke",
+		Description: "It broke badly.",
+		Fields:      []tracker.FieldValue{{Label: "Steps to reproduce", Value: "Click the button"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateTicket should still succeed when custom field discovery fails: %v", err)
 	}
 }

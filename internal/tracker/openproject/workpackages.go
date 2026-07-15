@@ -2,6 +2,7 @@ package openproject
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -44,17 +45,35 @@ type workPackageResponse struct {
 	} `json:"_links"`
 }
 
-// CreateTicket creates a work package. Template fields are appended to the
-// description as markdown sections, in the template's declared field order
-// (v1 simplification — real per-type custom field mapping needs schema
-// discovery not covered by this adapter yet).
+// CreateTicket creates a work package. Each template field is matched
+// (case-insensitively, by label) against the target project+type's real
+// custom fields; a match's value is posted to that custom field, otherwise
+// the field is appended to the description as a markdown section, in the
+// template's declared field order. Custom field discovery failing (e.g. an
+// older OpenProject version) is non-fatal: every field just falls back to
+// the description, matching this adapter's original v1 behavior.
 func (c *Client) CreateTicket(ctx context.Context, projectID, typeID string, input tracker.TicketInput) (tracker.Ticket, error) {
 	description := input.Description
+	customFieldValues := map[string]interface{}{}
+
 	if len(input.Fields) > 0 {
+		schema, err := c.GetCustomFields(ctx, projectID, typeID)
+		if err != nil {
+			schema = nil
+		}
+
 		var b strings.Builder
 		b.WriteString(description)
 		for _, f := range input.Fields {
-			fmt.Fprintf(&b, "\n\n## %s\n%s", f.Label, f.Value)
+			if cf, ok := matchCustomField(schema, f.Label); ok {
+				if cf.Type == "Formattable" {
+					customFieldValues[cf.Key] = wpDescription{Format: "markdown", Raw: f.Value}
+				} else {
+					customFieldValues[cf.Key] = f.Value
+				}
+				continue
+			}
+			fmt.Fprintf(&b, "\n\n#### %s\n%s", f.Label, f.Value)
 		}
 		description = b.String()
 	}
@@ -81,8 +100,17 @@ func (c *Client) CreateTicket(ctx context.Context, projectID, typeID string, inp
 		Links:       links,
 	}
 
+	var reqBody interface{} = body
+	if len(customFieldValues) > 0 {
+		merged, err := mergeCustomFields(body, customFieldValues)
+		if err != nil {
+			return tracker.Ticket{}, err
+		}
+		reqBody = merged
+	}
+
 	var resp workPackageResponse
-	if err := c.doRequest(ctx, http.MethodPost, "/api/v3/work_packages", body, &resp); err != nil {
+	if err := c.doRequest(ctx, http.MethodPost, "/api/v3/work_packages", reqBody, &resp); err != nil {
 		return tracker.Ticket{}, err
 	}
 
@@ -91,4 +119,34 @@ func (c *Client) CreateTicket(ctx context.Context, projectID, typeID string, inp
 		ID:  id,
 		URL: c.baseURL + "/work_packages/" + id,
 	}, nil
+}
+
+// matchCustomField finds the schema entry whose name case-insensitively
+// matches a template field's label, if any.
+func matchCustomField(schema []tracker.CustomFieldSchema, label string) (tracker.CustomFieldSchema, bool) {
+	for _, cf := range schema {
+		if strings.EqualFold(cf.Name, label) {
+			return cf, true
+		}
+	}
+	return tracker.CustomFieldSchema{}, false
+}
+
+// mergeCustomFields folds customFieldN values into the work package request
+// body. createWorkPackageRequest is a fixed struct (custom field keys are
+// per-instance and dynamic), so the merge goes through a JSON round-trip
+// into a plain map.
+func mergeCustomFields(body createWorkPackageRequest, customFields map[string]interface{}) (map[string]interface{}, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("openproject: marshal work package request: %w", err)
+	}
+	merged := map[string]interface{}{}
+	if err := json.Unmarshal(raw, &merged); err != nil {
+		return nil, fmt.Errorf("openproject: remarshal work package request: %w", err)
+	}
+	for k, v := range customFields {
+		merged[k] = v
+	}
+	return merged, nil
 }
