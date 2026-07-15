@@ -243,7 +243,7 @@ var defaultTemplates = []templates.Template{
 		Name:            "User Story",
 		TrackerTypeName: "User story",
 		FieldsSchema: []templates.Field{
-			{Name: "precondition", Label: "Pre-Condition", Type: "textarea"},
+			{Name: "precondition", Label: "Pre-Conditions", Type: "textarea"},
 			{Name: "synopsis", Label: "Synopsis", Type: "textarea"},
 			{Name: "acceptanceCriteria", Label: "Acceptance Criteria", Type: "textarea"},
 		},
@@ -252,7 +252,7 @@ var defaultTemplates = []templates.Template{
 			"Products\"). The description should open with the story in \"As a <role>, I should be able " +
 			"to <capability> so that <benefit>\" form, followed by a detailed breakdown of the " +
 			"requirements and behavior as a bulleted or numbered list — cover every distinct capability " +
-			"or rule mentioned in the input, not just the headline one. Fill in Pre-Condition with every " +
+			"or rule mentioned in the input, not just the headline one. Fill in Pre-Conditions with every " +
 			"piece of state that must already be true for the story to apply — required role/signup/login " +
 			"state, existing data, prior setup, any dependent feature or configuration the input implies — " +
 			"as a multi-sentence explanation or bulleted list, not a single term or clause; if the input " +
