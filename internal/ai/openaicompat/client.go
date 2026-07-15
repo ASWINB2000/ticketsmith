@@ -241,12 +241,26 @@ func (c *Client) chatCompletion(ctx context.Context, reqBody chatRequest) (chatR
 // mode (chosen over json_schema/strict mode for the widest compatibility
 // across OpenAI, Groq, and self-hosted OpenAI-compatible servers).
 func (c *Client) GenerateTicket(ctx context.Context, tmpl templates.Template, rawInput string) (ai.StructuredTicket, error) {
+	return c.structuredTicketRequest(ctx, buildSystemPrompt(tmpl), rawInput)
+}
+
+// RefineTicket asks the model to elaborate on an existing draft rather than
+// re-deriving one from rawInput alone — see ai.Provider.RefineTicket.
+func (c *Client) RefineTicket(ctx context.Context, tmpl templates.Template, rawInput string, current ai.StructuredTicket) (ai.StructuredTicket, error) {
+	return c.structuredTicketRequest(ctx, buildRefineSystemPrompt(tmpl), buildRefineUserMessage(rawInput, current))
+}
+
+// structuredTicketRequest posts a system/user message pair in JSON object
+// mode and parses the reply into a StructuredTicket — the request/parse
+// plumbing shared by GenerateTicket and RefineTicket, which differ only in
+// their prompts.
+func (c *Client) structuredTicketRequest(ctx context.Context, systemPrompt, userMessage string) (ai.StructuredTicket, error) {
 	chatResp, _, err := c.chatCompletion(ctx, chatRequest{
 		ResponseFormat: &responseFormat{Type: "json_object"},
 		Temperature:    &ticketTemperature,
 		Messages: []chatMessage{
-			{Role: "system", Content: buildSystemPrompt(tmpl)},
-			{Role: "user", Content: rawInput},
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: userMessage},
 		},
 	})
 	if err != nil {
@@ -322,43 +336,122 @@ func stripJSONFence(content string) string {
 	return strings.TrimSpace(content)
 }
 
+// writeFieldsSchema appends the "fields" key listing shared by the generate
+// and refine system prompts — the template's declared extraction fields,
+// each with its label/description if set.
+func writeFieldsSchema(b *strings.Builder, tmpl templates.Template) {
+	b.WriteString(`- "fields": an object with the following keys, each a string value:` + "\n")
+	for _, f := range tmpl.FieldsSchema {
+		fmt.Fprintf(b, "  - %q", f.Name)
+		if f.Label != "" {
+			fmt.Fprintf(b, " (%s)", f.Label)
+		}
+		if f.Description != "" {
+			fmt.Fprintf(b, ": %s", f.Description)
+		}
+		b.WriteString("\n")
+	}
+}
+
+// writingStandard is the shared density/formatting bar for every field in
+// both a fresh generation and a refine pass.
+func writingStandard() string {
+	return "\nWriting standard: write like an experienced QA/product analyst producing polished, " +
+		"submission-ready documentation — never compress a field into a single line, a sentence " +
+		"fragment, or a vague restatement of its label. \"description\" must be one or more full " +
+		"paragraphs covering what the issue or work is, where/how it shows up, and why it matters — " +
+		"not a one-line summary. Every field you choose to populate needs real substance: at minimum " +
+		"3–5 sentences of prose, or an equivalent multi-item markdown list — a single short sentence is " +
+		"only acceptable when the source material is itself so narrow there is nothing left to elaborate on. " +
+		"Treat each field as its own self-contained deliverable that has to make sense to someone who " +
+		"never sees \"description\": don't just echo the field's label back with different words — unpack " +
+		"it. Pull in every relevant detail the source material touched on for that field, spell out implied " +
+		"context (who's affected, what state the system/user is in, why it matters), and where the source " +
+		"lists multiple items/steps/conditions for a field, cover all of them individually rather than " +
+		"bundling them into one blended sentence. This elaboration must still be grounded — restate and " +
+		"connect what the source material actually says, draw out its direct implications, but never invent " +
+		"specifics (numbers, names, exact values, extra requirements) it didn't provide. Use markdown " +
+		"formatting (bold, bullet or numbered lists, tables) inside \"description\" and fields wherever " +
+		"it aids clarity, not just prose. If you use a markdown heading anywhere inside \"description\" " +
+		"(e.g. to label a \"Requirements\" or \"Acceptance Criteria\" section), always use exactly #### " +
+		"(heading level 4) — never ##, ###, or a higher level — so it stays visually consistent with the " +
+		"headings TicketSmith adds for extraction fields when the ticket is filed. If the source material " +
+		"truly doesn't cover a field at all, leave it as an empty string rather than guessing or padding " +
+		"it with filler — but \"doesn't cover it\" means the topic is entirely absent, not that the source " +
+		"was brief; brief source material can still be elaborated on thoroughly and grounded in what it does say."
+}
+
 func buildSystemPrompt(tmpl templates.Template) string {
 	var b strings.Builder
 	b.WriteString("You are a ticket-writing assistant. Given freeform notes from a user, output ONLY a JSON object ")
 	b.WriteString("(no markdown fences, no extra text) with exactly these keys:\n")
 	b.WriteString(`- "subject": string, a concise ticket title` + "\n")
 	b.WriteString(`- "description": string, a clear description in markdown` + "\n")
-	b.WriteString(`- "fields": an object with the following keys, each a string value:` + "\n")
-	for _, f := range tmpl.FieldsSchema {
-		fmt.Fprintf(&b, "  - %q", f.Name)
-		if f.Label != "" {
-			fmt.Fprintf(&b, " (%s)", f.Label)
-		}
-		if f.Description != "" {
-			fmt.Fprintf(&b, ": %s", f.Description)
-		}
-		b.WriteString("\n")
-	}
-	b.WriteString("\nWriting standard: write like an experienced QA/product analyst producing polished, ")
-	b.WriteString("submission-ready documentation — never compress a field into a single line, a sentence ")
-	b.WriteString("fragment, or a vague restatement of its label. \"description\" must be one or more full ")
-	b.WriteString("paragraphs covering what the issue or work is, where/how it shows up, and why it matters — ")
-	b.WriteString("not a one-line summary. Every field you choose to populate should be written as complete ")
-	b.WriteString("sentences, or as a structured markdown list/table when the content is naturally itemized ")
-	b.WriteString("(e.g. multiple steps, multiple field/value pairs) — detailed enough that someone with zero ")
-	b.WriteString("prior context on the raw input could still act on it correctly. Use markdown formatting ")
-	b.WriteString("(bold, bullet or numbered lists, tables) inside \"description\" and fields wherever it aids ")
-	b.WriteString("clarity, not just prose. If you use a markdown heading anywhere inside \"description\" (e.g. to ")
-	b.WriteString("label a \"Requirements\" or \"Acceptance Criteria\" section), always use exactly #### (heading ")
-	b.WriteString("level 4) — never ##, ###, or a higher level — so it stays visually consistent with the ")
-	b.WriteString("headings TicketSmith adds for extraction fields when the ticket is filed. Still: never invent ")
-	b.WriteString("specifics (numbers, names, exact values) the ")
-	b.WriteString("raw input didn't provide — elaborate on what's there, don't fabricate what isn't. If the raw ")
-	b.WriteString("input truly doesn't cover a field, leave it as an empty string rather than guessing or ")
-	b.WriteString("padding it with filler.")
+	writeFieldsSchema(&b, tmpl)
+	b.WriteString(writingStandard())
 	if tmpl.AIInstructions != "" {
 		b.WriteString("\n\nAdditional instructions:\n")
 		b.WriteString(tmpl.AIInstructions)
+	}
+	return b.String()
+}
+
+// buildRefineSystemPrompt is buildSystemPrompt's counterpart for a refine
+// pass: the model is handed both the original raw notes and the current
+// draft (see buildRefineUserMessage) and told to treat the draft — including
+// anything the user added by hand that isn't in the raw notes — as ground
+// truth to preserve and elaborate on, not something to re-derive or
+// second-guess against the raw notes alone.
+func buildRefineSystemPrompt(tmpl templates.Template) string {
+	var b strings.Builder
+	b.WriteString("You are a ticket-writing assistant refining an existing ticket draft. You will be given the ")
+	b.WriteString("original raw notes and the current draft (subject/description/fields) — the draft may already ")
+	b.WriteString("include manual edits or extra points the user added by hand that go beyond the raw notes. ")
+	b.WriteString("Treat everything already in the current draft as accurate and intentional: never drop, ")
+	b.WriteString("contradict, or quietly water down something the draft added just because the raw notes didn't ")
+	b.WriteString("mention it. Output ONLY a JSON object (no markdown fences, no extra text) with exactly these ")
+	b.WriteString("keys:\n")
+	b.WriteString(`- "subject": string, a concise ticket title` + "\n")
+	b.WriteString(`- "description": string, a clear description in markdown` + "\n")
+	writeFieldsSchema(&b, tmpl)
+	b.WriteString(writingStandard())
+	b.WriteString("\n\nRefinement-specific rules:\n")
+	b.WriteString("- Treat the union of the raw notes and the current draft as your source material — you may ")
+	b.WriteString("elaborate on a specific found in either one, but still never invent a fact absent from both.\n")
+	b.WriteString("- Your job is to deepen and polish, not regress: if a field already meets the writing standard, ")
+	b.WriteString("keep its substance and tighten/clarify it rather than shortening or replacing it with something ")
+	b.WriteString("thinner.\n")
+	b.WriteString("- If the current draft is thin on a field, elaborate it out using whatever the raw notes or the ")
+	b.WriteString("rest of the draft imply about it, following the writing standard above.\n")
+	b.WriteString("- Don't move content across fields or into/out of \"description\" unless it's clearly misplaced ")
+	b.WriteString("in the current draft.\n")
+	if tmpl.AIInstructions != "" {
+		b.WriteString("\n\nAdditional instructions:\n")
+		b.WriteString(tmpl.AIInstructions)
+	}
+	return b.String()
+}
+
+// buildRefineUserMessage hands the model the original raw notes alongside
+// the current draft it's refining, field values sorted for a stable prompt.
+func buildRefineUserMessage(rawInput string, current ai.StructuredTicket) string {
+	var b strings.Builder
+	b.WriteString("Original raw notes:\n")
+	b.WriteString(rawInput)
+	b.WriteString("\n\nCurrent draft:\n")
+	fmt.Fprintf(&b, "Subject: %s\n", current.Subject)
+	b.WriteString("Description:\n")
+	b.WriteString(current.Description)
+	if len(current.Fields) > 0 {
+		b.WriteString("\n\nFields:\n")
+		names := make([]string, 0, len(current.Fields))
+		for name := range current.Fields {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Fprintf(&b, "- %s: %s\n", name, current.Fields[name])
+		}
 	}
 	return b.String()
 }

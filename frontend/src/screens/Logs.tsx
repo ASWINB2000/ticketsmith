@@ -8,6 +8,7 @@ import {Card, CardContent} from '@/components/ui/card'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetBody} from '@/components/ui/sheet'
 import {DataTable, type DataTableColumn} from '@/components/DataTable'
+import {NoteEditor} from '@/components/NoteEditor'
 import {StatusBadge} from '@/components/StatusBadge'
 import {FormField} from '@/components/FormField'
 import {PageHeader} from '@/components/Layout/PageHeader'
@@ -48,7 +49,19 @@ function TicketContent({content, fieldLabels}: { content?: string; fieldLabels: 
             </div>
             <div>
                 <div className="mb-0.5 font-medium text-muted-foreground">Description</div>
-                <div className="whitespace-pre-wrap">{parsed.description || '—'}</div>
+                {parsed.description ? (
+                    // Content is Markdown from the AI/edit flow — render it instead of
+                    // showing raw `#`/`*` syntax, matching NoteEditor's Notes rendering.
+                    <NoteEditor
+                        key={parsed.description}
+                        content={parsed.description}
+                        editable={false}
+                        wrapperClassName="opacity-100"
+                        className="min-h-0 border-none bg-transparent p-0"
+                    />
+                ) : (
+                    <div className="whitespace-pre-wrap">—</div>
+                )}
             </div>
             {Object.entries(parsed.fields ?? {}).map(([name, value]) => (
                 <div key={name}>
@@ -125,12 +138,13 @@ export function Logs() {
                             <Select
                                 value={action}
                                 onValueChange={(v) => setAction(v as string)}
-                                items={{[ANY]: 'Any', generate: 'Generate', create: 'Create'}}
+                                items={{[ANY]: 'Any', generate: 'Generate', refine: 'Refine', create: 'Create'}}
                             >
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value={ANY}>Any</SelectItem>
                                     <SelectItem value="generate">Generate</SelectItem>
+                                    <SelectItem value="refine">Refine</SelectItem>
                                     <SelectItem value="create">Create</SelectItem>
                                 </SelectContent>
                             </Select>

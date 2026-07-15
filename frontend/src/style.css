@@ -178,6 +178,30 @@
   .tiptap-note ul[data-type='taskList'] li > div {
     flex: 1;
   }
+  .tiptap-note h1,
+  .tiptap-note h2,
+  .tiptap-note h3,
+  .tiptap-note h4,
+  .tiptap-note h5,
+  .tiptap-note h6 {
+    margin: 0.6em 0 0.25em;
+    font-weight: 600;
+  }
+  .tiptap-note h1 {
+    font-size: 1.25em;
+  }
+  .tiptap-note h2 {
+    font-size: 1.15em;
+  }
+  .tiptap-note h3,
+  .tiptap-note h4,
+  .tiptap-note h5,
+  .tiptap-note h6 {
+    font-size: 1.05em;
+  }
+  .tiptap-note :first-child {
+    margin-top: 0;
+  }
   .tiptap-note p.is-editor-empty:first-child::before {
     float: left;
     height: 0;

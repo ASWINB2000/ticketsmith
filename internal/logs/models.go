@@ -6,7 +6,7 @@ import "time"
 type LogEntry struct {
 	ID               string    `json:"id"`
 	Timestamp        time.Time `json:"timestamp"`
-	Action           string    `json:"action"` // "generate" | "create" | "edit" | "error"
+	Action           string    `json:"action"` // "generate" | "refine" | "create" | "edit" | "error"
 	ConnectionID     string    `json:"connectionId,omitempty"`
 	TemplateID       string    `json:"templateId,omitempty"`
 	RawInput         string    `json:"rawInput,omitempty"`

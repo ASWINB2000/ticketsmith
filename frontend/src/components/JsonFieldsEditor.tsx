@@ -33,9 +33,14 @@ export function JsonFieldsEditor({fields, onChange}: JsonFieldsEditorProps) {
             <Label className="inline-flex w-fit items-center gap-1.5">
                 Extraction fields
                 <InfoTooltip>
-                    Specific pieces of information the AI should pull out of your notes — beyond the subject and
-                    description — like "steps to reproduce" or "acceptance criteria". Each one becomes its own
+                    Specific pieces of information the AI should pull out of your notes beyond the subject and
+                    description like "steps to reproduce" or "acceptance criteria". Each one becomes its own
                     editable field in the preview before you submit.
+                    <br /><br />
+                    If a field's label matches the name of a custom field in your project management tool
+                    (case-insensitive), its value is posted into that real custom field instead of being appended to
+                    the description. The Generate screen's preview shows a "Custom field match" badge when this
+                    applies.
                 </InfoTooltip>
             </Label>
             {fields.map((field, index) => (
@@ -49,7 +54,13 @@ export function JsonFieldsEditor({fields, onChange}: JsonFieldsEditorProps) {
                         />
                     </div>
                     <div className="grid gap-1">
-                        <Label className="text-xs text-muted-foreground">Label</Label>
+                        <Label className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground">
+                            Label
+                            <InfoTooltip>
+                                Matched (case-insensitive) against custom field names in your tracker. A match posts
+                                the value to that real field instead of appending it to the description.
+                            </InfoTooltip>
+                        </Label>
                         <Input
                             value={field.label}
                             onChange={(e) => update(index, {label: e.target.value})}

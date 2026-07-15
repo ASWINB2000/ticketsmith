@@ -9,13 +9,14 @@ import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/compo
 import {Button} from '@/components/ui/button'
 import {Input} from '@/components/ui/input'
 import {Textarea} from '@/components/ui/textarea'
+import {NoteEditor} from '@/components/NoteEditor'
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from '@/components/ui/select'
 import {FormField} from '@/components/FormField'
 import {PageHeader} from '@/components/Layout/PageHeader'
 import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetBody, SheetFooter, SheetClose} from '@/components/ui/sheet'
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter} from '@/components/ui/dialog'
 import {Badge} from '@/components/ui/badge'
-import {Wand2Icon, SettingsIcon, Undo2Icon, PaperclipIcon, XIcon, ImageIcon, VideoIcon} from 'lucide-react'
+import {Wand2Icon, SettingsIcon, Undo2Icon, PaperclipIcon, XIcon, ImageIcon, VideoIcon, Trash2Icon} from 'lucide-react'
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.bmp'])
 
@@ -95,8 +96,13 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
     const [logId, setLogId] = useState<string | null>(null)
     const [ticket, setTicket] = useState<EditableTicket | null>(null)
     const [generatedTicket, setGeneratedTicket] = useState<EditableTicket | null>(null)
+    // NoteEditor only reads its `content` prop on first mount, so a fresh
+    // AI-regenerated draft (or a Reset to AI output) has to force a remount
+    // via `key` to actually show the new markdown — bumped alongside ticket.
+    const [previewRevision, setPreviewRevision] = useState(0)
 
     const [creating, setCreating] = useState(false)
+    const [refining, setRefining] = useState(false)
     const [createdTicket, setCreatedTicket] = useState<tracker.Ticket | null>(null)
 
     // Notes -> Generate handoff (docs/NOTES_PLAN.md §5): which note(s) this
@@ -104,6 +110,8 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
     const pendingNoteIds = useRef<string[]>([])
     const [notePromptOpen, setNotePromptOpen] = useState(false)
     const [notePromptIds, setNotePromptIds] = useState<string[]>([])
+
+    const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
 
     const template = tmpls.find((t) => t.id === templateId) ?? null
     const connectionName = conns.find((c) => c.id === connectionId)?.name
@@ -154,6 +162,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
         if (!active) {
             setConfigOpen(false)
             setNotePromptOpen(false)
+            setClearConfirmOpen(false)
         }
     }, [active])
 
@@ -298,6 +307,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
             }
             setTicket(next)
             setGeneratedTicket(next)
+            setPreviewRevision((r) => r + 1)
         } catch (err) {
             toast.error(`Generation failed: ${err}`)
             setTicket(null)
@@ -309,7 +319,38 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
     }
 
     const resetToGenerated = () => {
-        if (generatedTicket) setTicket(generatedTicket)
+        if (!generatedTicket) return
+        setTicket(generatedTicket)
+        setPreviewRevision((r) => r + 1)
+    }
+
+    // Unlike generate(), this elaborates on the *current* (possibly
+    // hand-edited) draft rather than re-deriving one from rawInput alone —
+    // so a point added directly in the Preview fields survives and gets
+    // built out instead of being discarded on the next pass. On failure the
+    // current draft is left untouched, since the whole point is not to lose
+    // manual edits.
+    const refine = async () => {
+        if (!connectionId || !templateId || !rawInput.trim() || !ticket) return
+        setRefining(true)
+        setCreatedTicket(null)
+        try {
+            const current = new ai.StructuredTicket({subject: ticket.subject, description: ticket.description, fields: ticket.fields})
+            const result = await api.generate.refine(connectionId, templateId, rawInput, current)
+            setLogId(result.logId)
+            const next: EditableTicket = {
+                subject: result.ticket.subject,
+                description: result.ticket.description,
+                fields: result.ticket.fields ?? {},
+            }
+            setTicket(next)
+            setGeneratedTicket(next)
+            setPreviewRevision((r) => r + 1)
+        } catch (err) {
+            toast.error(`Refine failed: ${err}`)
+        } finally {
+            setRefining(false)
+        }
     }
 
     const createTicket = async () => {
@@ -381,8 +422,33 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
         }
     }
 
-    const canGenerate = !!connectionId && !!templateId && rawInput.trim() !== '' && !generating
+    const canGenerate = !!connectionId && !!templateId && rawInput.trim() !== '' && !generating && !refining
     const canCreate = !!ticket && !!projectId && !!typeId && !creating
+    const canRefine = canGenerate && !!ticket
+    const hasContent = rawInput.trim() !== '' || attachments.length > 0 || !!ticket || !!createdTicket
+
+    // Resets everything about the current draft — brief, attachments, generated/edited
+    // ticket, and per-ticket fields — but leaves the configured destination (connection/
+    // project) alone since that's a standing preference, not part of this draft.
+    const clearDraft = () => {
+        attachments.forEach((path) => api.generate.discardClipboardAttachment(path).catch(() => {}))
+        setRawInput('')
+        setAttachments([])
+        setPreviews({})
+        setTicket(null)
+        setGeneratedTicket(null)
+        setLogId(null)
+        setCreatedTicket(null)
+        setTemplateId('')
+        setTypeId('')
+        setAssigneeId(NONE)
+        setPriorityId(NONE)
+        setParentId('')
+        setStartDate('')
+        setDueDate('')
+        pendingNoteIds.current = []
+        setClearConfirmOpen(false)
+    }
 
     return (
         <div className="flex flex-col">
@@ -391,10 +457,15 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                 title="Generate"
                 description="Paste rough notes and turn them into a structured, previewable ticket."
                 actions={
-                    <Button variant="outline" onClick={() => setConfigOpen(true)}>
-                        <SettingsIcon />
-                        {configured ? `${connectionName} · ${projectName}` : 'Configure destination'}
-                    </Button>
+                    <>
+                        <Button variant="destructive" disabled={!hasContent} onClick={() => setClearConfirmOpen(true)}>
+                            <Trash2Icon /> Clear
+                        </Button>
+                        <Button variant="outline" onClick={() => setConfigOpen(true)}>
+                            <SettingsIcon />
+                            {configured ? `${connectionName} · ${projectName}` : 'Configure destination'}
+                        </Button>
+                    </>
                 }
             />
             <div className="grid gap-6 p-8">
@@ -414,7 +485,6 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                     <CardTitle>Brief</CardTitle>
                     <CardDescription>
                         Pick a template, then describe the issue or task in your own words.
-                        Fields marked <span className="text-destructive">*</span> are required — everything else is optional.
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4">
@@ -544,7 +614,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
 
                     <div className="flex gap-2">
                         <Button onClick={generate} disabled={!canGenerate}>
-                            {generating ? 'Generating…' : ticket ? 'Regenerate' : 'Generate'}
+                            {generating ? 'Generating…' : ticket ? 'Regenerate from brief' : 'Generate'}
                         </Button>
                     </div>
                 </CardContent>
@@ -557,7 +627,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                             <CardTitle>Preview</CardTitle>
                             {isEdited && <Badge variant="secondary">Edited</Badge>}
                         </div>
-                        <CardDescription>Edit anything below, then create the ticket or tweak your notes above and regenerate.</CardDescription>
+                        <CardDescription>Edit anything below, then create the ticket — tweak the Brief above and "Regenerate from brief" to start over, or edit a field here and "Regenerate from output" to elaborate on it in place.</CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-4">
                         <FormField label="Subject" htmlFor="preview-subject" required>
@@ -568,11 +638,11 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                             />
                         </FormField>
                         <FormField label="Description" htmlFor="preview-description">
-                            <Textarea
-                                id="preview-description"
-                                rows={6}
-                                value={ticket.description}
-                                onChange={(e) => setTicket((t) => t && {...t, description: e.target.value})}
+                            <NoteEditor
+                                key={`description-${previewRevision}`}
+                                content={ticket.description}
+                                onChange={(markdown) => setTicket((t) => t && {...t, description: markdown})}
+                                className="min-h-32"
                             />
                         </FormField>
                         {template?.fieldsSchema.map((f) => (
@@ -591,11 +661,11 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                                 htmlFor={`preview-field-${f.name}`}
                             >
                                 {f.type === 'textarea' ? (
-                                    <Textarea
-                                        id={`preview-field-${f.name}`}
-                                        rows={3}
-                                        value={ticket.fields[f.name] ?? ''}
-                                        onChange={(e) => setTicket((t) => t && {...t, fields: {...t.fields, [f.name]: e.target.value}})}
+                                    <NoteEditor
+                                        key={`field-${f.name}-${previewRevision}`}
+                                        content={ticket.fields[f.name] ?? ''}
+                                        onChange={(markdown) => setTicket((t) => t && {...t, fields: {...t.fields, [f.name]: markdown}})}
+                                        className="min-h-20"
                                     />
                                 ) : (
                                     <Input
@@ -611,8 +681,8 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                             <Button onClick={createTicket} disabled={!canCreate}>
                                 {creating ? 'Creating…' : 'Create ticket'}
                             </Button>
-                            <Button variant="outline" onClick={generate} disabled={!canGenerate}>
-                                {generating ? 'Regenerating…' : 'Regenerate'}
+                            <Button variant="outline" onClick={refine} disabled={!canRefine} title="Elaborate on this draft as-is, including any edits you've made, without starting over">
+                                {refining ? 'Refining…' : 'Regenerate from output'}
                             </Button>
                             {isEdited && (
                                 <Button variant="ghost" onClick={resetToGenerated}>
@@ -691,6 +761,22 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                     <DialogFooter>
                         <Button variant="outline" onClick={keepNotes}>Keep</Button>
                         <Button variant="destructive" onClick={deleteNotes}>Delete</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={clearConfirmOpen} onOpenChange={setClearConfirmOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Clear content?</DialogTitle>
+                        <DialogDescription>
+                            This clears the Brief text, attachments, and the generated Preview below. Your configured
+                            connection and project stay set. This can't be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setClearConfirmOpen(false)}>Cancel</Button>
+                        <Button variant="destructive" onClick={clearDraft}>Clear</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

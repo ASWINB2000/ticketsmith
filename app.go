@@ -252,13 +252,18 @@ var defaultTemplates = []templates.Template{
 			"Products\"). The description should open with the story in \"As a <role>, I should be able " +
 			"to <capability> so that <benefit>\" form, followed by a detailed breakdown of the " +
 			"requirements and behavior as a bulleted or numbered list — cover every distinct capability " +
-			"or rule mentioned in the input, not just the headline one. Fill in Pre-Condition with the " +
-			"full state that must already be true for the story to apply (required role/signup/login " +
-			"state, existing data, prior setup), written as complete sentences rather than a single term. " +
-			"Synopsis should be a substantive paragraph (not one sentence) restating the story's goal and " +
-			"its value to the user. Acceptance Criteria should be a numbered list of concrete, testable " +
-			"conditions — each one specific enough that someone could verify it without re-reading the " +
-			"raw input. Leave a field blank rather than guessing if the input doesn't cover it.",
+			"or rule mentioned in the input, not just the headline one. Fill in Pre-Condition with every " +
+			"piece of state that must already be true for the story to apply — required role/signup/login " +
+			"state, existing data, prior setup, any dependent feature or configuration the input implies — " +
+			"as a multi-sentence explanation or bulleted list, not a single term or clause; if the input " +
+			"only implies one precondition, still spell out its full implication in 2–3 sentences rather " +
+			"than a fragment. Synopsis must be a substantive multi-sentence paragraph (never a single " +
+			"sentence) that restates the story's goal, who it's for, the value/benefit to the user, and any " +
+			"context on where or how it fits into the broader product that the input touches on. Acceptance " +
+			"Criteria should be a numbered list of concrete, testable conditions — each one a complete " +
+			"sentence specific enough that someone could verify it without re-reading the raw input, and " +
+			"covering every distinct behavior or rule the input mentioned rather than merging several into " +
+			"one bullet. Leave a field blank rather than guessing if the input doesn't cover it at all.",
 	},
 	{
 		Name:            "Bug",
@@ -587,6 +592,53 @@ func (a *App) GenerateTicket(connectionID, templateID, rawInput string) (Generat
 
 	if genErr != nil {
 		return GenerateResult{LogID: entry.ID}, genErr
+	}
+	return GenerateResult{LogID: entry.ID, Ticket: ticket}, nil
+}
+
+// RefineTicket re-elaborates the current (possibly user-edited) draft
+// instead of regenerating from rawInput alone, so manual edits/added points
+// survive and get built out rather than discarded — see
+// ai.Provider.RefineTicket. Writes its own audit log row, same as
+// GenerateTicket.
+func (a *App) RefineTicket(connectionID, templateID, rawInput string, current ai.StructuredTicket) (GenerateResult, error) {
+	tmpl, err := a.templatesStore.Get(a.ctx, templateID)
+	if err != nil {
+		return GenerateResult{}, fmt.Errorf("app: get template: %w", err)
+	}
+
+	provider, err := a.aiProvider()
+	if err != nil {
+		return GenerateResult{}, err
+	}
+
+	ticket, refineErr := provider.RefineTicket(a.ctx, tmpl, rawInput, current)
+
+	status := "success"
+	errMsg := ""
+	generatedJSON := ""
+	if refineErr != nil {
+		status = "failure"
+		errMsg = refineErr.Error()
+	} else if b, err := json.Marshal(ticket); err == nil {
+		generatedJSON = string(b)
+	}
+
+	entry, logErr := a.logsStore.Create(a.ctx, logs.LogEntry{
+		Action:           "refine",
+		ConnectionID:     connectionID,
+		TemplateID:       templateID,
+		RawInput:         rawInput,
+		GeneratedContent: generatedJSON,
+		Status:           status,
+		ErrorMessage:     errMsg,
+	})
+	if logErr != nil {
+		return GenerateResult{}, fmt.Errorf("app: write log entry: %w", logErr)
+	}
+
+	if refineErr != nil {
+		return GenerateResult{LogID: entry.ID}, refineErr
 	}
 	return GenerateResult{LogID: entry.ID, Ticket: ticket}, nil
 }

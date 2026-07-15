@@ -35,6 +35,7 @@ export const api = {
     },
     generate: {
         run: Go.GenerateTicket,
+        refine: Go.RefineTicket,
         create: Go.CreateTicket,
         getDestination: Go.GetGenerateDestination,
         saveDestination: Go.SaveGenerateDestination,
