@@ -32,6 +32,7 @@ export const api = {
         create: Go.CreateTemplate,
         update: Go.UpdateTemplate,
         remove: Go.DeleteTemplate,
+        suggestTuning: Go.SuggestTemplateTuning,
     },
     generate: {
         run: Go.GenerateTicket,
@@ -56,6 +57,7 @@ export const api = {
         remove: Go.DeleteNote,
         merge: Go.MergeNotes,
         confirmMerge: Go.ConfirmMerge,
+        quickCaptureShortcut: Go.QuickCaptureShortcut,
     },
     releaseNotes: {
         latest: Go.GetLatestReleaseNotes,

@@ -121,6 +121,9 @@ function NoteCard({
 
 export function Notes({onConvertToGenerate}: NotesProps) {
     const [list, setList] = useState<Note[]>([])
+    // Global quick-capture shortcut label (e.g. "Ctrl+T"), or '' when the
+    // backend couldn't register one — in that case no hint is shown.
+    const [captureShortcut, setCaptureShortcut] = useState('')
     const [newTitle, setNewTitle] = useState('')
     const [newContent, setNewContent] = useState('')
     const [newNoteKey, setNewNoteKey] = useState(0)
@@ -144,6 +147,9 @@ export function Notes({onConvertToGenerate}: NotesProps) {
         api.notes.list().then(setList).catch((err) => toast.error(`Failed to load notes: ${err}`))
     }
     useEffect(refresh, [])
+    useEffect(() => {
+        api.notes.quickCaptureShortcut().then(setCaptureShortcut).catch(() => {})
+    }, [])
 
     const save = async () => {
         if (!newContent.trim()) return
@@ -246,6 +252,16 @@ export function Notes({onConvertToGenerate}: NotesProps) {
                 icon={NotebookPenIcon}
                 title="Notes"
                 description="Jot something down instantly, decide later whether and how it becomes a ticket."
+                actions={
+                    captureShortcut ? (
+                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <kbd className="rounded border bg-muted px-1.5 py-0.5 font-mono text-[0.7rem] font-medium text-foreground">
+                                {captureShortcut}
+                            </kbd>
+                            quick-captures a note from anywhere
+                        </span>
+                    ) : undefined
+                }
             />
             <div className="grid gap-6 p-8">
                 <Card>

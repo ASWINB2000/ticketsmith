@@ -16,6 +16,22 @@ type StructuredTicket struct {
 	Fields      map[string]string `json:"fields"`
 }
 
+// EditExample pairs what the AI generated for a ticket with what the user
+// actually filed after hand-editing it — the raw material for tuning a
+// template's instructions from real usage.
+type EditExample struct {
+	Generated StructuredTicket `json:"generated"`
+	Final     StructuredTicket `json:"final"`
+}
+
+// TuningSuggestion is the AI's analysis of a template's edit history: what
+// patterns the user's edits show, and a rewritten instruction set that would
+// have produced the edited versions directly.
+type TuningSuggestion struct {
+	Summary               string `json:"summary"`
+	SuggestedInstructions string `json:"suggestedInstructions"`
+}
+
 // Provider generates a StructuredTicket from a template and freeform raw input.
 type Provider interface {
 	GenerateTicket(ctx context.Context, template templates.Template, rawInput string) (StructuredTicket, error)
@@ -31,4 +47,10 @@ type Provider interface {
 	// Rephrase combines one or more freeform notes into a single coherent
 	// draft — plain text in, plain text out, no structured schema.
 	Rephrase(ctx context.Context, notes []string) (string, error)
+
+	// SuggestInstructions studies before/after pairs of tickets the user
+	// edited by hand before filing and proposes an updated version of the
+	// template's AI instructions that would have produced the edited
+	// versions directly.
+	SuggestInstructions(ctx context.Context, template templates.Template, examples []EditExample) (TuningSuggestion, error)
 }

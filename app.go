@@ -10,6 +10,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"reflect"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -49,6 +50,11 @@ type App struct {
 
 	trackerMu    sync.Mutex
 	trackerCache map[string]tracker.Tracker
+
+	// Display label of the registered global quick-capture shortcut, or ""
+	// if none could be registered. Written once during startup, read-only
+	// afterwards (see QuickCaptureShortcut).
+	quickCaptureShortcut string
 }
 
 // AISettingsView is what the frontend sees for AI provider config — never
@@ -101,6 +107,19 @@ func (a *App) startup(ctx context.Context) {
 	a.seedDefaultTemplates()
 
 	go a.checkForUpdatesOnStartup()
+
+	// Synchronous (Register is a quick call; the OS-level listening runs in
+	// its own goroutine) so quickCaptureShortcut is settled before the
+	// frontend can ever ask for it.
+	a.quickCaptureShortcut = a.setupQuickCaptureHotkey()
+}
+
+// QuickCaptureShortcut returns the registered global quick-capture shortcut
+// as a display label (e.g. "Ctrl+T"), or "" when none is active — either the
+// platform doesn't support it or another app already owns the combination.
+// The frontend only advertises the shortcut when this is non-empty.
+func (a *App) QuickCaptureShortcut() string {
+	return a.quickCaptureShortcut
 }
 
 // shutdown closes the database cleanly on app exit.
@@ -535,6 +554,88 @@ func (a *App) UpdateTemplate(t templates.Template) (templates.Template, error) {
 
 func (a *App) DeleteTemplate(id string) error {
 	return a.templatesStore.Delete(a.ctx, id)
+}
+
+// TemplateTuningView is what the frontend sees for a template tuning pass:
+// how much filed-ticket history was examined, how much of it the user had
+// hand-edited, and (when there were edits) the AI's analysis. Summary and
+// SuggestedInstructions are empty when EditedCount is 0 — no edits means
+// there is nothing to learn from, not a failure.
+type TemplateTuningView struct {
+	SampleCount           int    `json:"sampleCount"`
+	EditedCount           int    `json:"editedCount"`
+	Summary               string `json:"summary"`
+	SuggestedInstructions string `json:"suggestedInstructions"`
+}
+
+// maxTuningExamples caps how many generated-vs-filed pairs are sent to the
+// AI in one tuning pass, so a long log history doesn't blow up the prompt.
+const maxTuningExamples = 20
+
+// SuggestTemplateTuning studies how the user hand-edited this template's
+// generated tickets before filing them (the generated_content vs
+// final_content pairing on "create" log rows) and asks the AI to propose
+// updated instructions that would have produced the filed versions directly.
+// Nothing is persisted — the frontend applies a suggestion via the normal
+// UpdateTemplate flow once the user has reviewed (and possibly edited) it.
+func (a *App) SuggestTemplateTuning(templateID string) (TemplateTuningView, error) {
+	tmpl, err := a.templatesStore.Get(a.ctx, templateID)
+	if err != nil {
+		return TemplateTuningView{}, fmt.Errorf("app: get template: %w", err)
+	}
+
+	// "create" + "success" rows are tickets that actually reached the
+	// tracker, so their final_content reflects a deliberate filing.
+	entries, err := a.logsStore.List(a.ctx, logs.Filter{
+		TemplateID: templateID,
+		Action:     "create",
+		Status:     "success",
+	})
+	if err != nil {
+		return TemplateTuningView{}, fmt.Errorf("app: list logs: %w", err)
+	}
+
+	view := TemplateTuningView{}
+	var examples []ai.EditExample
+	for _, e := range entries {
+		if e.GeneratedContent == "" || e.FinalContent == "" {
+			continue
+		}
+		var generated, final ai.StructuredTicket
+		if json.Unmarshal([]byte(e.GeneratedContent), &generated) != nil ||
+			json.Unmarshal([]byte(e.FinalContent), &final) != nil {
+			continue
+		}
+		view.SampleCount++
+		if reflect.DeepEqual(generated, final) {
+			continue
+		}
+		view.EditedCount++
+		// entries are newest-first; keep the most recent edits, which
+		// best reflect the user's current preferences.
+		if len(examples) < maxTuningExamples {
+			examples = append(examples, ai.EditExample{Generated: generated, Final: final})
+		}
+	}
+
+	if view.SampleCount == 0 {
+		return TemplateTuningView{}, fmt.Errorf("no tickets have been filed with this template yet — file a few first, then try again")
+	}
+	if view.EditedCount == 0 {
+		return view, nil
+	}
+
+	provider, err := a.aiProvider()
+	if err != nil {
+		return TemplateTuningView{}, err
+	}
+	suggestion, err := provider.SuggestInstructions(a.ctx, tmpl, examples)
+	if err != nil {
+		return TemplateTuningView{}, fmt.Errorf("app: suggest instructions: %w", err)
+	}
+	view.Summary = suggestion.Summary
+	view.SuggestedInstructions = suggestion.SuggestedInstructions
+	return view, nil
 }
 
 // ----- Generate screen -----

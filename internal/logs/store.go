@@ -100,6 +100,10 @@ func (s *Store) List(ctx context.Context, f Filter) ([]LogEntry, error) {
 		conditions = append(conditions, "connection_id = ?")
 		args = append(args, f.ConnectionID)
 	}
+	if f.TemplateID != "" {
+		conditions = append(conditions, "template_id = ?")
+		args = append(args, f.TemplateID)
+	}
 	if len(conditions) > 0 {
 		query += " WHERE " + strings.Join(conditions, " AND ")
 	}

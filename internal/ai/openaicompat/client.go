@@ -326,6 +326,129 @@ func buildRephraseUserMessage(notes []string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// SuggestInstructions asks the model to study before/after pairs of tickets
+// the user hand-edited before filing and rewrite the template's AI
+// instructions so future generations land closer to the filed versions.
+// JSON object mode, same compatibility reasoning as GenerateTicket.
+func (c *Client) SuggestInstructions(ctx context.Context, tmpl templates.Template, examples []ai.EditExample) (ai.TuningSuggestion, error) {
+	if len(examples) == 0 {
+		return ai.TuningSuggestion{}, fmt.Errorf("ai: suggest instructions requires at least one edit example")
+	}
+
+	chatResp, _, err := c.chatCompletion(ctx, chatRequest{
+		ResponseFormat: &responseFormat{Type: "json_object"},
+		Temperature:    &ticketTemperature,
+		Messages: []chatMessage{
+			{Role: "system", Content: buildTuningSystemPrompt()},
+			{Role: "user", Content: buildTuningUserMessage(tmpl, examples)},
+		},
+	})
+	if err != nil {
+		return ai.TuningSuggestion{}, err
+	}
+
+	content := stripJSONFence(chatResp.Choices[0].Message.Content)
+
+	// Despite the prompt asking for plain strings, some models return
+	// "summary" (and occasionally "suggestedInstructions") as an array of
+	// bullet strings — flexString absorbs either shape.
+	var parsed struct {
+		Summary               flexString `json:"summary"`
+		SuggestedInstructions flexString `json:"suggestedInstructions"`
+	}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		snippet := content
+		if len(snippet) > 200 {
+			snippet = snippet[:200]
+		}
+		return ai.TuningSuggestion{}, fmt.Errorf("ai: parse tuning suggestion from model output: %w (content: %q)", err, snippet)
+	}
+	suggestion := ai.TuningSuggestion{
+		Summary:               string(parsed.Summary),
+		SuggestedInstructions: string(parsed.SuggestedInstructions),
+	}
+	if strings.TrimSpace(suggestion.SuggestedInstructions) == "" {
+		return ai.TuningSuggestion{}, fmt.Errorf("ai: model returned an empty instruction suggestion")
+	}
+	return suggestion, nil
+}
+
+// flexString unmarshals a JSON value that should be a string but may come
+// back from a loosely-behaved model as an array of strings, which it joins
+// with newlines (each entry prefixed with "- " when joining a summary-style
+// list of two or more, so the result still reads as bullets).
+type flexString string
+
+func (f *flexString) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		*f = flexString(s)
+		return nil
+	}
+	var items []string
+	if err := json.Unmarshal(data, &items); err != nil {
+		return fmt.Errorf("value is neither a string nor an array of strings")
+	}
+	if len(items) == 1 {
+		*f = flexString(items[0])
+		return nil
+	}
+	for i, item := range items {
+		if !strings.HasPrefix(strings.TrimSpace(item), "-") {
+			items[i] = "- " + item
+		}
+	}
+	*f = flexString(strings.Join(items, "\n"))
+	return nil
+}
+
+func buildTuningSystemPrompt() string {
+	return "You are tuning the instruction prompt of an AI ticket-writing template based on how its user " +
+		"actually edits the generated tickets before filing them. You will be given the template's current " +
+		"instructions, its field schema, and several before/after examples — what the AI generated vs. what " +
+		"the user actually filed after hand-editing. Identify the recurring patterns in the user's edits " +
+		"(tone, length, structure, sections they add or remove, phrasing they prefer, details they always " +
+		"fill in or strip out) and rewrite the instructions so future generations match the filed versions " +
+		"on the first try. Preserve everything in the current instructions that the edits don't contradict — " +
+		"this is a refinement, not a rewrite from scratch. Ignore one-off, content-specific edits (facts " +
+		"unique to a single ticket) and only encode patterns that repeat or clearly reflect a stylistic/" +
+		"structural preference. Output ONLY a JSON object (no markdown fences, no extra text) with exactly " +
+		"these keys:\n" +
+		`- "summary": a single JSON string (never an array) containing 2-5 short markdown bullet points ` +
+		"separated by newlines, describing the edit patterns you found, written for the template's owner " +
+		"(\"you tend to...\")\n" +
+		`- "suggestedInstructions": a single JSON string (never an array), the full updated instruction ` +
+		"text, ready to save as-is"
+}
+
+// buildTuningUserMessage lays out the template's current instructions, its
+// field schema, and each generated-vs-filed pair as compact JSON.
+func buildTuningUserMessage(tmpl templates.Template, examples []ai.EditExample) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Template: %s (tracker type: %s)\n\n", tmpl.Name, tmpl.TrackerTypeName)
+	b.WriteString("Current instructions:\n")
+	if tmpl.AIInstructions == "" {
+		b.WriteString("(none — the template currently has no custom instructions)\n")
+	} else {
+		b.WriteString(tmpl.AIInstructions)
+		b.WriteString("\n")
+	}
+	b.WriteString("\nExtraction fields:\n")
+	for _, f := range tmpl.FieldsSchema {
+		fmt.Fprintf(&b, "- %s", f.Name)
+		if f.Label != "" {
+			fmt.Fprintf(&b, " (%s)", f.Label)
+		}
+		b.WriteString("\n")
+	}
+	for i, ex := range examples {
+		genJSON, _ := json.Marshal(ex.Generated)
+		finalJSON, _ := json.Marshal(ex.Final)
+		fmt.Fprintf(&b, "\nExample %d:\nAI generated: %s\nUser filed: %s\n", i+1, genJSON, finalJSON)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // stripJSONFence defensively removes ```json ... ``` fences some models add
 // even when asked for plain json_object output.
 func stripJSONFence(content string) string {

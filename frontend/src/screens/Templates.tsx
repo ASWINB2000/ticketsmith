@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {toast} from 'sonner'
-import {templates} from '../../wailsjs/go/models'
+import {main, templates} from '../../wailsjs/go/models'
 import {api} from '@/lib/api'
 import {Card, CardContent, CardHeader, CardTitle, CardDescription} from '@/components/ui/card'
 import {Button} from '@/components/ui/button'
@@ -13,7 +13,7 @@ import {ConfirmDialog} from '@/components/ConfirmDialog'
 import {JsonFieldsEditor} from '@/components/JsonFieldsEditor'
 import {PageHeader} from '@/components/Layout/PageHeader'
 import {Badge} from '@/components/ui/badge'
-import {PlusIcon, EyeIcon, LayoutTemplateIcon} from 'lucide-react'
+import {PlusIcon, EyeIcon, LayoutTemplateIcon, SparklesIcon} from 'lucide-react'
 
 type Template = templates.Template
 type Field = templates.Field
@@ -71,6 +71,14 @@ export function Templates() {
     const [form, setForm] = useState<TemplateFormState>(emptyForm)
     const [saving, setSaving] = useState(false)
 
+    // Tune-with-AI dialog state. tuneResult stays null while the analysis
+    // request is in flight; tuneInstructions is the user-editable copy of
+    // the AI's suggestion, applied via the normal template update call.
+    const [tuneTemplate, setTuneTemplate] = useState<Template | null>(null)
+    const [tuneResult, setTuneResult] = useState<main.TemplateTuningView | null>(null)
+    const [tuneInstructions, setTuneInstructions] = useState('')
+    const [applyingTune, setApplyingTune] = useState(false)
+
     const refresh = () => {
         api.templates.list().then(setList).catch((err) => toast.error(`Failed to load templates: ${err}`))
     }
@@ -120,6 +128,38 @@ export function Templates() {
         }
     }
 
+    const openTune = async (t: Template) => {
+        setTuneTemplate(t)
+        setTuneResult(null)
+        setTuneInstructions('')
+        try {
+            const result = await api.templates.suggestTuning(t.id)
+            setTuneResult(result)
+            setTuneInstructions(result.suggestedInstructions)
+        } catch (err) {
+            toast.error(`${err}`)
+            setTuneTemplate(null)
+        }
+    }
+
+    const applyTune = async () => {
+        if (!tuneTemplate) return
+        setApplyingTune(true)
+        try {
+            await api.templates.update(new templates.Template({
+                ...tuneTemplate,
+                aiInstructions: tuneInstructions,
+            }))
+            toast.success('Template instructions updated')
+            setTuneTemplate(null)
+            refresh()
+        } catch (err) {
+            toast.error(`${err}`)
+        } finally {
+            setApplyingTune(false)
+        }
+    }
+
     const remove = async (id: string) => {
         try {
             await api.templates.remove(id)
@@ -144,6 +184,9 @@ export function Templates() {
             className: 'text-right',
             render: (t) => (
                 <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openTune(t)} title="Analyze how you edit this template's generated tickets and suggest better AI instructions">
+                        <SparklesIcon /> Tune
+                    </Button>
                     <Button variant="outline" size="sm" onClick={() => openEdit(t)}>Edit</Button>
                     <ConfirmDialog
                         trigger={<Button variant="destructive" size="sm">Delete</Button>}
@@ -228,6 +271,63 @@ export function Templates() {
                     <DialogFooter>
                         <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
                         <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={tuneTemplate !== null} onOpenChange={(open) => !open && setTuneTemplate(null)}>
+                <DialogContent className="flex max-h-[85vh] w-full flex-col sm:max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Tune "{tuneTemplate?.name}" with AI</DialogTitle>
+                        <DialogDescription>
+                            Learns from the edits you made to this template's generated tickets before filing them.
+                        </DialogDescription>
+                    </DialogHeader>
+                    {!tuneResult ? (
+                        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                            Analyzing your recent edits…
+                        </p>
+                    ) : tuneResult.editedCount === 0 ? (
+                        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
+                            You filed {tuneResult.sampleCount} ticket{tuneResult.sampleCount === 1 ? '' : 's'} with
+                            this template without editing the AI's output — the current instructions seem to be
+                            working. Check back after you've made some manual edits.
+                        </p>
+                    ) : (
+                        <div className="-mx-4 grid min-h-0 flex-1 content-start gap-4 overflow-y-auto px-4 py-1">
+                            <p className="text-sm text-muted-foreground">
+                                Based on {tuneResult.editedCount} of {tuneResult.sampleCount} filed ticket
+                                {tuneResult.sampleCount === 1 ? '' : 's'} you edited by hand.
+                            </p>
+                            <div className="rounded-lg border bg-muted/40 p-4">
+                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                    What your edits show
+                                </span>
+                                <p className="mt-2 text-sm whitespace-pre-wrap">{tuneResult.summary}</p>
+                            </div>
+                            <FormField
+                                label="Suggested AI instructions"
+                                htmlFor="tune-instructions"
+                                description="Review and edit freely — applying replaces the template's current instructions."
+                            >
+                                <Textarea
+                                    id="tune-instructions"
+                                    rows={10}
+                                    value={tuneInstructions}
+                                    onChange={(e) => setTuneInstructions(e.target.value)}
+                                />
+                            </FormField>
+                        </div>
+                    )}
+                    <DialogFooter>
+                        <DialogClose render={<Button variant="outline" />}>
+                            {tuneResult && tuneResult.editedCount > 0 ? 'Cancel' : 'Close'}
+                        </DialogClose>
+                        {tuneResult && tuneResult.editedCount > 0 && (
+                            <Button onClick={applyTune} disabled={applyingTune || !tuneInstructions.trim()}>
+                                {applyingTune ? 'Applying…' : 'Apply instructions'}
+                            </Button>
+                        )}
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

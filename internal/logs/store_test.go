@@ -91,6 +91,15 @@ func TestLogEntryListFiltersAndOrdersReverseChronologically(t *testing.T) {
 		t.Fatalf("List by connection_id: %v, %+v", err, byConn)
 	}
 
+	third, err := s.Create(ctx, LogEntry{Action: "create", TemplateID: "tmpl-1", Status: "success"})
+	if err != nil {
+		t.Fatalf("Create third: %v", err)
+	}
+	byTemplate, err := s.List(ctx, Filter{TemplateID: "tmpl-1"})
+	if err != nil || len(byTemplate) != 1 || byTemplate[0].ID != third.ID {
+		t.Fatalf("List by template_id: %v, %+v", err, byTemplate)
+	}
+
 	limited, err := s.List(ctx, Filter{Limit: 1})
 	if err != nil || len(limited) != 1 {
 		t.Fatalf("List with limit: %v, %+v", err, limited)

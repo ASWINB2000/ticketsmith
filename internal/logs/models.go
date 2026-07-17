@@ -23,6 +23,7 @@ type Filter struct {
 	Action       string `json:"action,omitempty"`
 	Status       string `json:"status,omitempty"`
 	ConnectionID string `json:"connectionId,omitempty"`
+	TemplateID   string `json:"templateId,omitempty"`
 	Limit        int    `json:"limit,omitempty"`
 	Offset       int    `json:"offset,omitempty"`
 }

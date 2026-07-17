@@ -2,6 +2,7 @@ import {useEffect, useState} from 'react'
 import {Sidebar, type ScreenKey} from '@/components/Layout/Sidebar'
 import {Toaster} from '@/components/ui/sonner'
 import {ConnectionsProvider} from '@/lib/connections'
+import {QuickCapture} from '@/components/QuickCapture'
 import {api} from '@/lib/api'
 import type {NotesPrefill} from '@/lib/notesPrefill'
 import {Connect} from '@/screens/Connect'
@@ -14,6 +15,9 @@ import {Help} from '@/screens/Help'
 function App() {
     const [screen, setScreen] = useState<ScreenKey>('generate')
     const [notesPrefill, setNotesPrefill] = useState<NotesPrefill | null>(null)
+    // Bumped when the global-hotkey quick capture saves a note, so an
+    // already-open Notes board remounts and shows the new note immediately.
+    const [notesVersion, setNotesVersion] = useState(0)
 
     // The native window starts hidden (see main.go) so it never shows a
     // blank/stale frame before this first render lands; reveal it now.
@@ -45,11 +49,12 @@ function App() {
                         />
                     </div>
                     {screen === 'connect' && <Connect />}
-                    {screen === 'notes' && <Notes onConvertToGenerate={convertNoteToGenerate} />}
+                    {screen === 'notes' && <Notes key={notesVersion} onConvertToGenerate={convertNoteToGenerate} />}
                     {screen === 'templates' && <Templates />}
                     {screen === 'logs' && <Logs />}
                     {screen === 'help' && <Help />}
                 </main>
+                <QuickCapture onSaved={() => setNotesVersion((v) => v + 1)} />
                 <Toaster />
             </div>
         </ConnectionsProvider>

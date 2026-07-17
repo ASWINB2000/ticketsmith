@@ -224,6 +224,7 @@ export function Help() {
                         >
                             <p>The tracker type name must exactly match a type in your tracker (e.g. "Bug").</p>
                             <p>AI instructions tell the model how to write the subject and description.</p>
+                            <p>Once you've filed a few tickets, click <span className="font-medium text-foreground">Tune</span> on a template — TicketSmith studies the manual edits you made before filing and suggests improved instructions.</p>
                         </ChecklistItem>
 
                         <ChecklistItem
@@ -233,6 +234,7 @@ export function Help() {
                         >
                             <p>Pick a connection, project, and template, then paste your notes and click Generate.</p>
                             <p>Review the AI's output, edit anything, then click Create ticket.</p>
+                            <p>Tip: press <Code>Ctrl+T</Code> from anywhere — even outside TicketSmith — to pop a quick-capture window that saves straight to your Notes board. Note it's global, so it overrides Ctrl+T elsewhere (e.g. a browser's new-tab shortcut) while TicketSmith is running.</p>
                         </ChecklistItem>
                     </CardContent>
                 </Card>

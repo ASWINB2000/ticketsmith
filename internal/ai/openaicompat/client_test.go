@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"ticketsmith/internal/ai"
 	"ticketsmith/internal/templates"
 )
 
@@ -189,5 +190,60 @@ func TestGenerateTicketErrorsOnMalformedJSON(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not json at all") {
 		t.Errorf("error = %q, want it to include a content snippet", err.Error())
+	}
+}
+
+// suggestInstructionsWithResponse runs SuggestInstructions against a stub
+// server that always replies with the given message content.
+func suggestInstructionsWithResponse(t *testing.T, content string) (ai.TuningSuggestion, error) {
+	t.Helper()
+	respBody, err := json.Marshal(chatResponse{
+		Choices: []chatChoice{{Message: chatMessage{Content: content}}},
+	})
+	if err != nil {
+		t.Fatalf("marshal test fixture: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(respBody)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "sk-test", "model")
+	examples := []ai.EditExample{{
+		Generated: ai.StructuredTicket{Subject: "before"},
+		Final:     ai.StructuredTicket{Subject: "after"},
+	}}
+	return c.SuggestInstructions(context.Background(), templates.Template{Name: "Bug"}, examples)
+}
+
+func TestSuggestInstructionsParsesStringFields(t *testing.T) {
+	got, err := suggestInstructionsWithResponse(t,
+		`{"summary":"- you shorten subjects","suggestedInstructions":"Write short subjects."}`)
+	if err != nil {
+		t.Fatalf("SuggestInstructions: %v", err)
+	}
+	if got.Summary != "- you shorten subjects" || got.SuggestedInstructions != "Write short subjects." {
+		t.Errorf("unexpected suggestion: %+v", got)
+	}
+}
+
+func TestSuggestInstructionsAcceptsArraySummary(t *testing.T) {
+	got, err := suggestInstructionsWithResponse(t,
+		`{"summary":["you shorten subjects","- you add line breaks"],"suggestedInstructions":["Write short subjects."]}`)
+	if err != nil {
+		t.Fatalf("SuggestInstructions: %v", err)
+	}
+	if got.Summary != "- you shorten subjects\n- you add line breaks" {
+		t.Errorf("summary = %q, want newline-joined bullets", got.Summary)
+	}
+	if got.SuggestedInstructions != "Write short subjects." {
+		t.Errorf("suggestedInstructions = %q", got.SuggestedInstructions)
+	}
+}
+
+func TestSuggestInstructionsErrorsOnEmptySuggestion(t *testing.T) {
+	if _, err := suggestInstructionsWithResponse(t, `{"summary":"- x","suggestedInstructions":""}`); err == nil {
+		t.Fatal("expected error for empty suggestedInstructions, got nil")
 	}
 }
