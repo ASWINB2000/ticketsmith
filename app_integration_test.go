@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"ticketsmith/internal/ai"
+	"ticketsmith/internal/aiusage"
 	"ticketsmith/internal/connections"
 	"ticketsmith/internal/db"
 	"ticketsmith/internal/logs"
@@ -36,7 +37,8 @@ func newIsolatedApp(t *testing.T) *App {
 		connectionsStore: connections.NewStore(sqlDB),
 		templatesStore:   templates.NewStore(sqlDB),
 		logsStore:        logs.NewStore(sqlDB),
-		aiConfigStore:    ai.NewConfigStore(sqlDB),
+		aiProfilesStore:  ai.NewProfileStore(sqlDB),
+		aiUsageStore:     aiusage.NewStore(sqlDB),
 		notesStore:       notes.NewStore(sqlDB),
 		trackerCache:     map[string]tracker.Tracker{},
 	}
@@ -115,9 +117,11 @@ func TestFullAppFlow(t *testing.T) {
 	}
 
 	// --- Generate: AI configured but unreachable -> failure IS logged for audit ---
-	if err := a.SaveAISettings("http://127.0.0.1:1", "fake-model", "fake-key"); err != nil {
-		t.Fatalf("SaveAISettings: %v", err)
+	profile, err := a.CreateAIProfile("Unreachable", "http://127.0.0.1:1", "fake-model", "fake-key")
+	if err != nil {
+		t.Fatalf("CreateAIProfile: %v", err)
 	}
+	t.Cleanup(func() { secrets.Delete(profile.KeyringKey) })
 	if _, err := a.GenerateTicket(conn.ID, tmpl.ID, "some raw notes"); err == nil {
 		t.Fatalf("expected GenerateTicket to fail against an unreachable AI endpoint")
 	}

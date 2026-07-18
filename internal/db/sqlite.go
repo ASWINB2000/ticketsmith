@@ -44,6 +44,20 @@ CREATE TABLE IF NOT EXISTS logs (
   error_message TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ai_profiles (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  base_url TEXT NOT NULL,
+  model TEXT NOT NULL DEFAULT '',
+  keyring_key TEXT NOT NULL DEFAULT '',
+  is_active INTEGER NOT NULL DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Legacy single-provider config, superseded by ai_profiles. Kept so
+-- ai.ProfileStore.MigrateLegacyConfig can lift an existing setup into a
+-- "Default" profile on first launch after the upgrade.
 CREATE TABLE IF NOT EXISTS ai_settings (
   id TEXT PRIMARY KEY DEFAULT 'default',
   base_url TEXT NOT NULL DEFAULT '',
@@ -57,6 +71,16 @@ CREATE TABLE IF NOT EXISTS generate_prefs (
   connection_id TEXT NOT NULL DEFAULT '',
   project_id TEXT NOT NULL DEFAULT '',
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id TEXT PRIMARY KEY,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  base_url TEXT NOT NULL,
+  model TEXT NOT NULL,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS notes (

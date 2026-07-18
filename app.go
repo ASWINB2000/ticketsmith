@@ -21,6 +21,7 @@ import (
 
 	"ticketsmith/internal/ai"
 	"ticketsmith/internal/ai/openaicompat"
+	"ticketsmith/internal/aiusage"
 	"ticketsmith/internal/connections"
 	"ticketsmith/internal/db"
 	"ticketsmith/internal/logs"
@@ -44,7 +45,8 @@ type App struct {
 	connectionsStore *connections.Store
 	templatesStore   *templates.Store
 	logsStore        *logs.Store
-	aiConfigStore    *ai.ConfigStore
+	aiProfilesStore  *ai.ProfileStore
+	aiUsageStore     *aiusage.Store
 	prefsStore       *prefs.Store
 	notesStore       *notes.Store
 
@@ -55,14 +57,6 @@ type App struct {
 	// if none could be registered. Written once during startup, read-only
 	// afterwards (see QuickCaptureShortcut).
 	quickCaptureShortcut string
-}
-
-// AISettingsView is what the frontend sees for AI provider config — never
-// the plaintext key, only whether one has been saved.
-type AISettingsView struct {
-	BaseURL string `json:"baseUrl"`
-	Model   string `json:"model"`
-	HasKey  bool   `json:"hasKey"`
 }
 
 // GenerateResult is the response to GenerateTicket: the log row it was
@@ -98,13 +92,20 @@ func (a *App) startup(ctx context.Context) {
 	a.connectionsStore = connections.NewStore(sqlDB)
 	a.templatesStore = templates.NewStore(sqlDB)
 	a.logsStore = logs.NewStore(sqlDB)
-	a.aiConfigStore = ai.NewConfigStore(sqlDB)
+	a.aiProfilesStore = ai.NewProfileStore(sqlDB)
+	a.aiUsageStore = aiusage.NewStore(sqlDB)
 	a.prefsStore = prefs.NewStore(sqlDB)
 	a.notesStore = notes.NewStore(sqlDB)
 	a.trackerCache = map[string]tracker.Tracker{}
 
 	a.seedDefaultConnection()
 	a.seedDefaultTemplates()
+
+	// One-shot upgrade: lift a pre-profiles ai_settings row into a "Default"
+	// profile so an existing setup keeps working untouched.
+	if err := a.aiProfilesStore.MigrateLegacyConfig(a.ctx); err != nil {
+		log.Printf("ticketsmith: migrate legacy AI config: %v", err)
+	}
 
 	go a.checkForUpdatesOnStartup()
 
@@ -372,18 +373,39 @@ func (a *App) invalidateTracker(connectionID string) {
 }
 
 func (a *App) aiProvider() (ai.Provider, error) {
-	cfg, err := a.aiConfigStore.Get(a.ctx)
+	p, err := a.aiProfilesStore.GetActive(a.ctx)
+	if errors.Is(err, ai.ErrProfileNotFound) {
+		return nil, fmt.Errorf("AI provider is not configured — add a profile on the Connect screen")
+	}
 	if err != nil {
-		return nil, fmt.Errorf("app: get AI config: %w", err)
+		return nil, fmt.Errorf("app: get active AI profile: %w", err)
 	}
-	if cfg.BaseURL == "" || cfg.KeyringKey == "" {
-		return nil, fmt.Errorf("AI provider is not configured — add it on the Connect screen")
+	apiKey := ""
+	if p.KeyringKey != "" {
+		if apiKey, err = secrets.Get(p.KeyringKey); err != nil {
+			return nil, fmt.Errorf("app: get AI api key: %w", err)
+		}
 	}
-	apiKey, err := secrets.Get(cfg.KeyringKey)
-	if err != nil {
-		return nil, fmt.Errorf("app: get AI api key: %w", err)
-	}
-	return openaicompat.New(cfg.BaseURL, apiKey, cfg.Model), nil
+	return a.newAIClient(p.BaseURL, apiKey, p.Model), nil
+}
+
+// newAIClient constructs an openaicompat client that records every completion's
+// token spend into the local ai_usage table — the app's own consumption ledger,
+// kept regardless of whether the provider reports usage itself. Recording is
+// best-effort: a failed insert never fails the AI call it rode along with.
+func (a *App) newAIClient(baseURL, apiKey, model string) *openaicompat.Client {
+	return openaicompat.New(baseURL, apiKey, model).OnUsage(func(u openaicompat.TokenUsage) {
+		err := a.aiUsageStore.Add(a.ctx, aiusage.Record{
+			BaseURL:          baseURL,
+			Model:            model,
+			PromptTokens:     u.PromptTokens,
+			CompletionTokens: u.CompletionTokens,
+			TotalTokens:      u.TotalTokens,
+		})
+		if err != nil {
+			log.Printf("ticketsmith: record ai usage: %v", err)
+		}
+	})
 }
 
 // ----- Connect screen: tracker connections -----
@@ -467,71 +489,107 @@ func (a *App) GetTrackerCustomFields(connectionID, projectID, typeID string) ([]
 	return t.GetCustomFields(a.ctx, projectID, typeID)
 }
 
-// ----- Connect screen: AI provider settings -----
+// ----- Connect screen: AI provider profiles -----
 
-func (a *App) GetAISettings() (AISettingsView, error) {
-	cfg, err := a.aiConfigStore.Get(a.ctx)
-	if err != nil {
-		return AISettingsView{}, err
-	}
-	return AISettingsView{BaseURL: cfg.BaseURL, Model: cfg.Model, HasKey: cfg.KeyringKey != ""}, nil
+func (a *App) ListAIProfiles() ([]ai.Profile, error) {
+	return a.aiProfilesStore.List(a.ctx)
 }
 
-func (a *App) SaveAISettings(baseURL, model, apiKey string) error {
-	return a.aiConfigStore.Save(a.ctx, baseURL, model, apiKey)
+func (a *App) CreateAIProfile(name, baseURL, model, apiKey string) (ai.Profile, error) {
+	return a.aiProfilesStore.Create(a.ctx, name, baseURL, model, apiKey)
 }
 
-// resolveAIKey returns apiKey if non-empty, otherwise the currently-saved
-// key — so callers can fetch models / test a connection without retyping a
-// key that's already stored in the keychain.
-func (a *App) resolveAIKey(apiKey string) (string, error) {
+func (a *App) UpdateAIProfile(id, name, baseURL, model, apiKey string) (ai.Profile, error) {
+	return a.aiProfilesStore.Update(a.ctx, id, name, baseURL, model, apiKey)
+}
+
+func (a *App) DeleteAIProfile(id string) error {
+	return a.aiProfilesStore.Delete(a.ctx, id)
+}
+
+// SetActiveAIProfile switches which saved profile every AI call uses.
+func (a *App) SetActiveAIProfile(id string) error {
+	return a.aiProfilesStore.SetActive(a.ctx, id)
+}
+
+// resolveAIKey returns apiKey if non-empty, otherwise the key saved on the
+// given profile — so the Connect screen can fetch models / test / check
+// usage for a profile being edited without the user retyping a key that's
+// already in the keychain. profileID may be blank when creating a brand-new
+// profile (then a typed key is required).
+func (a *App) resolveAIKey(profileID, apiKey string) (string, error) {
 	if apiKey != "" {
 		return apiKey, nil
 	}
-	cfg, err := a.aiConfigStore.Get(a.ctx)
+	if profileID == "" {
+		return "", fmt.Errorf("no API key saved yet — enter one first")
+	}
+	p, err := a.aiProfilesStore.Get(a.ctx, profileID)
 	if err != nil {
 		return "", err
 	}
-	if cfg.KeyringKey == "" {
-		return "", fmt.Errorf("no API key saved yet — enter one first")
+	if p.KeyringKey == "" {
+		return "", nil // keyless profile (e.g. local Ollama) — send no key
 	}
-	return secrets.Get(cfg.KeyringKey)
+	return secrets.Get(p.KeyringKey)
 }
 
 // ListAIModels fetches available model IDs from an OpenAI-compatible
-// endpoint. If apiKey is blank, the currently-saved key is used.
-func (a *App) ListAIModels(baseURL, apiKey string) ([]string, error) {
-	key, err := a.resolveAIKey(apiKey)
+// endpoint. If apiKey is blank, the key saved on profileID is used.
+func (a *App) ListAIModels(profileID, baseURL, apiKey string) ([]string, error) {
+	key, err := a.resolveAIKey(profileID, apiKey)
 	if err != nil {
 		return nil, err
 	}
 	return openaicompat.ListModels(a.ctx, baseURL, key)
 }
 
-// TestAISettings verifies the given (or partially-saved) AI provider settings
-// actually work. Prefers a free GET /models check; only falls back to
-// spending a completion token if the provider doesn't support that.
-func (a *App) TestAISettings(baseURL, model, apiKey string) error {
-	key, err := a.resolveAIKey(apiKey)
+// TestAIProfile verifies the given (possibly partially-saved) AI provider
+// settings actually work. Prefers a free GET /models check; only falls back
+// to spending a completion token if the provider doesn't support that.
+func (a *App) TestAIProfile(profileID, baseURL, model, apiKey string) error {
+	key, err := a.resolveAIKey(profileID, apiKey)
 	if err != nil {
 		return err
 	}
-	if err := openaicompat.New(baseURL, key, model).Ping(a.ctx); err != nil {
+	if err := a.newAIClient(baseURL, key, model).Ping(a.ctx); err != nil {
 		return fmt.Errorf("connection test failed: %w", err)
 	}
 	return nil
 }
 
-// AIUsage fetches best-effort rate-limit/usage info for the given (or
-// partially-saved) AI provider settings. Not every OpenAI-compatible
-// provider reports this — check Usage.Supported before trusting the
-// numeric fields.
-func (a *App) AIUsage(baseURL, model, apiKey string) (openaicompat.Usage, error) {
-	key, err := a.resolveAIKey(apiKey)
+// AIUsageView is what the frontend sees for the Connect screen's usage
+// dialog: the app's own recorded consumption for the endpoint (always
+// available, from the spec-guaranteed "usage" object in each completion
+// response), plus the provider's best-effort rate-limit snapshot (headers
+// many providers omit — a failure there is reported, not fatal).
+type AIUsageView struct {
+	Recorded      aiusage.Summary    `json:"recorded"`
+	Provider      openaicompat.Usage `json:"provider"`
+	ProviderError string             `json:"providerError,omitempty"`
+}
+
+// AIUsage reports usage info for the given (or partially-saved) AI profile
+// settings — see AIUsageView for what "usage" means here and why the
+// provider half is best-effort.
+func (a *App) AIUsage(profileID, baseURL, model, apiKey string) (AIUsageView, error) {
+	key, err := a.resolveAIKey(profileID, apiKey)
 	if err != nil {
-		return openaicompat.Usage{}, err
+		return AIUsageView{}, err
 	}
-	return openaicompat.New(baseURL, key, model).Usage(a.ctx)
+
+	view := AIUsageView{}
+	view.Provider, err = a.newAIClient(baseURL, key, model).Usage(a.ctx)
+	if err != nil {
+		view.ProviderError = err.Error()
+	}
+
+	// Summarize after the probe above so its own token spend is included.
+	view.Recorded, err = a.aiUsageStore.Summarize(a.ctx, baseURL)
+	if err != nil {
+		return AIUsageView{}, err
+	}
+	return view, nil
 }
 
 // ----- Templates screen -----
@@ -619,7 +677,7 @@ func (a *App) SuggestTemplateTuning(templateID string) (TemplateTuningView, erro
 	}
 
 	if view.SampleCount == 0 {
-		return TemplateTuningView{}, fmt.Errorf("no tickets have been filed with this template yet — file a few first, then try again")
+		return TemplateTuningView{}, fmt.Errorf("No tickets have been filed with this template yet. File a few first, then try again")
 	}
 	if view.EditedCount == 0 {
 		return view, nil

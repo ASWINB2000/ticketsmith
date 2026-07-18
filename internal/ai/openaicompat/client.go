@@ -23,6 +23,27 @@ type Client struct {
 	apiKey  string
 	model   string
 	http    *http.Client
+
+	// onUsage, when set, is called with the token spend of every successful
+	// chat completion (see OnUsage).
+	onUsage func(TokenUsage)
+}
+
+// TokenUsage is the per-request token spend from a chat completion response
+// body's "usage" object — unlike rate-limit headers, this IS part of the
+// OpenAI-compatible spec, so it's the one usage signal every provider reports.
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+// OnUsage registers a callback invoked with each successful chat completion's
+// token usage, letting the caller persist a local consumption record. It
+// returns the client for chaining at the construction site.
+func (c *Client) OnUsage(fn func(TokenUsage)) *Client {
+	c.onUsage = fn
+	return c
 }
 
 // New constructs a client. baseURL is the API root (e.g.
@@ -106,19 +127,24 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
-// Usage reports rate-limit/quota info from the provider's most recent
-// response headers — the "x-ratelimit-*" convention started by OpenAI and
-// echoed by Groq, Azure OpenAI, and (via Azure) GitHub Models. It's not part
-// of the OpenAI-compatible spec, so self-hosted or other servers may omit
-// it entirely — check Supported before trusting the numeric fields.
+// Usage reports rate-limit info from the provider's most recent response
+// headers — the "x-ratelimit-*" convention started by OpenAI and echoed by
+// Groq, Azure OpenAI, and (via Azure) GitHub Models. Two caveats: it's not
+// part of the OpenAI-compatible spec, so self-hosted or other servers may
+// omit it entirely (check Supported before trusting the numeric fields);
+// and these are short rolling-window throttles (often seconds to a minute —
+// see the WindowSeconds/Reset fields), NOT cumulative account usage, so
+// "remaining" snaps back to the limit as each window renews.
 type Usage struct {
-	Supported         bool   `json:"supported"`
-	RequestsLimit     int    `json:"requestsLimit"`
-	RequestsRemaining int    `json:"requestsRemaining"`
-	TokensLimit       int    `json:"tokensLimit"`
-	TokensRemaining   int    `json:"tokensRemaining"`
-	ResetRequests     string `json:"resetRequests"`
-	ResetTokens       string `json:"resetTokens"`
+	Supported             bool   `json:"supported"`
+	RequestsLimit         int    `json:"requestsLimit"`
+	RequestsRemaining     int    `json:"requestsRemaining"`
+	TokensLimit           int    `json:"tokensLimit"`
+	TokensRemaining       int    `json:"tokensRemaining"`
+	ResetRequests         string `json:"resetRequests"`
+	ResetTokens           string `json:"resetTokens"`
+	RequestsWindowSeconds int    `json:"requestsWindowSeconds"`
+	TokensWindowSeconds   int    `json:"tokensWindowSeconds"`
 }
 
 // Usage fetches current rate-limit/usage info via a minimal (1-token) chat
@@ -149,6 +175,11 @@ func parseUsage(h http.Header) Usage {
 		TokensRemaining:   atoi("x-ratelimit-remaining-tokens"),
 		ResetRequests:     h.Get("x-ratelimit-reset-requests"),
 		ResetTokens:       h.Get("x-ratelimit-reset-tokens"),
+		// Azure APIM (GitHub Models) reports the rolling window's length in
+		// seconds — without it a "60000 requests" limit reads like a daily
+		// quota when it's really a 10-second gateway throttle.
+		RequestsWindowSeconds: atoi("x-ratelimit-renewalperiod-requests"),
+		TokensWindowSeconds:   atoi("x-ratelimit-renewalperiod-tokens"),
 	}
 }
 
@@ -180,6 +211,7 @@ type chatChoice struct {
 
 type chatResponse struct {
 	Choices []chatChoice `json:"choices"`
+	Usage   *TokenUsage  `json:"usage"`
 }
 
 type apiErrorBody struct {
@@ -233,6 +265,9 @@ func (c *Client) chatCompletion(ctx context.Context, reqBody chatRequest) (chatR
 	}
 	if len(chatResp.Choices) == 0 {
 		return chatResponse{}, nil, fmt.Errorf("ai: response had no choices")
+	}
+	if c.onUsage != nil && chatResp.Usage != nil {
+		c.onUsage(*chatResp.Usage)
 	}
 	return chatResp, resp.Header, nil
 }

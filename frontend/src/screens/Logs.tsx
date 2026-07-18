@@ -190,7 +190,7 @@ export function Logs() {
             <Sheet open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
                 <SheetContent>
                     <SheetHeader>
-                        <SheetTitle>Log entry — {selected?.action}</SheetTitle>
+                        <SheetTitle>Log entry: {selected?.action}</SheetTitle>
                     </SheetHeader>
                     <SheetBody>
                         {selected && (

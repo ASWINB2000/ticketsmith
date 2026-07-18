@@ -17,18 +17,21 @@ import {PageHeader} from '@/components/Layout/PageHeader'
 import {StatusBadge} from '@/components/StatusBadge'
 import {Badge} from '@/components/ui/badge'
 import {cn} from '@/lib/utils'
-import {PlusIcon, BotIcon, Plug2Icon, RefreshCwIcon, PlugZapIcon, GaugeIcon} from 'lucide-react'
+import {PlusIcon, BotIcon, Plug2Icon, RefreshCwIcon, PlugZapIcon, GaugeIcon, CheckIcon} from 'lucide-react'
 import {JiraIcon, AzureDevOpsIcon, OpenProjectIcon} from '@/components/BrandIcons'
-import {openaicompat} from '../../wailsjs/go/models'
+import {main, ai, aiusage} from '../../wailsjs/go/models'
 import type {ComponentType} from 'react'
 
-function UsageBar({label, remaining, limit}: {label: string; remaining: number; limit: number}) {
+function UsageBar({label, remaining, limit, windowSeconds}: {label: string; remaining: number; limit: number; windowSeconds: number}) {
     const used = Math.max(limit - remaining, 0)
     const pct = limit > 0 ? Math.min((used / limit) * 100, 100) : 0
     return (
         <div className="grid gap-1.5">
             <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">{label}</span>
+                <span className="font-medium">
+                    {label}
+                    {windowSeconds > 0 && <span className="ml-1 font-normal text-muted-foreground">(per {windowSeconds}s window)</span>}
+                </span>
                 <span className="text-muted-foreground">{remaining.toLocaleString()} / {limit.toLocaleString()} remaining</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
@@ -38,7 +41,53 @@ function UsageBar({label, remaining, limit}: {label: string; remaining: number; 
     )
 }
 
+// Recorded-usage rollup: Ticketsmith's own count of what it has spent against
+// the endpoint, from the "usage" object in every completion response.
+function RecordedUsageTable({summary}: {summary: aiusage.Summary}) {
+    const rows: {label: string; totals: aiusage.PeriodTotals}[] = [
+        {label: 'Today', totals: summary.today},
+        {label: 'Last 7 days', totals: summary.last7Days},
+        {label: 'All time', totals: summary.allTime},
+    ]
+    return (
+        <div className="grid gap-1 text-sm">
+            <div className="grid grid-cols-3 gap-2 border-b pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <span />
+                <span className="text-right">Requests</span>
+                <span className="text-right">Tokens</span>
+            </div>
+            {rows.map(({label, totals}) => (
+                <div key={label} className="grid grid-cols-3 gap-2 py-0.5">
+                    <span className="font-medium">{label}</span>
+                    <span className="text-right tabular-nums">{totals.requests.toLocaleString()}</span>
+                    <span className="text-right tabular-nums">{totals.totalTokens.toLocaleString()}</span>
+                </div>
+            ))}
+        </div>
+    )
+}
+
 type Connection = connections.Connection
+type AIProfile = ai.Profile
+
+// Quick-fill presets for the AI profile sheet — the providers the Help
+// screen documents, minus retired ones. Just fills the form; nothing is
+// saved until the user does.
+const AI_PRESETS: {label: string; name: string; baseUrl: string; model: string}[] = [
+    {label: 'Groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b'},
+    {label: 'Gemini', name: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash'},
+    {label: 'OpenAI', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini'},
+    {label: 'Ollama (local)', name: 'Local Ollama', baseUrl: 'http://localhost:11434/v1', model: ''},
+]
+
+interface AIProfileFormState {
+    name: string
+    baseUrl: string
+    model: string
+    apiKey: string
+}
+
+const emptyAiForm: AIProfileFormState = {name: '', baseUrl: '', model: '', apiKey: ''}
 
 const TRACKER_KINDS: {
     value: string
@@ -104,24 +153,27 @@ export function Connect() {
     const [testingId, setTestingId] = useState<string | null>(null)
     const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({})
 
-    const [aiForm, setAiForm] = useState({baseUrl: '', model: '', apiKey: ''})
+    const [aiProfiles, setAiProfiles] = useState<AIProfile[]>([])
+    const [aiSheetOpen, setAiSheetOpen] = useState(false)
+    const [editingAiId, setEditingAiId] = useState<string | null>(null)
+    const [aiForm, setAiForm] = useState<AIProfileFormState>(emptyAiForm)
     const [aiHasKey, setAiHasKey] = useState(false)
     const [aiSaving, setAiSaving] = useState(false)
     const [aiModels, setAiModels] = useState<string[]>([])
     const [aiFetchingModels, setAiFetchingModels] = useState(false)
     const [aiTesting, setAiTesting] = useState(false)
     const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null)
-    const [aiUsageOpen, setAiUsageOpen] = useState(false)
+    const [aiActivatingId, setAiActivatingId] = useState<string | null>(null)
+    // Usage dialog is scoped to the profile whose Usage button was clicked.
+    const [aiUsageProfile, setAiUsageProfile] = useState<AIProfile | null>(null)
     const [aiUsageLoading, setAiUsageLoading] = useState(false)
-    const [aiUsage, setAiUsage] = useState<openaicompat.Usage | null>(null)
+    const [aiUsage, setAiUsage] = useState<main.AIUsageView | null>(null)
     const [aiUsageError, setAiUsageError] = useState<string | null>(null)
 
-    useEffect(() => {
-        api.aiSettings.get().then((s) => {
-            setAiForm({baseUrl: s.baseUrl, model: s.model, apiKey: ''})
-            setAiHasKey(s.hasKey)
-        }).catch((err) => toast.error(`Failed to load AI settings: ${err}`))
-    }, [])
+    const refreshAiProfiles = () => {
+        api.aiProfiles.list().then(setAiProfiles).catch((err) => toast.error(`Failed to load AI profiles: ${err}`))
+    }
+    useEffect(refreshAiProfiles, [])
 
     const openCreate = () => {
         setEditingId(null)
@@ -178,13 +230,36 @@ export function Connect() {
         }
     }
 
-    const saveAiSettings = async () => {
+    const openAiCreate = () => {
+        setEditingAiId(null)
+        setAiForm(emptyAiForm)
+        setAiHasKey(false)
+        setAiModels([])
+        setAiTestResult(null)
+        setAiSheetOpen(true)
+    }
+
+    const openAiEdit = (p: AIProfile) => {
+        setEditingAiId(p.id)
+        setAiForm({name: p.name, baseUrl: p.baseUrl, model: p.model, apiKey: ''})
+        setAiHasKey(p.hasKey)
+        setAiModels([])
+        setAiTestResult(null)
+        setAiSheetOpen(true)
+    }
+
+    const saveAiProfile = async () => {
         setAiSaving(true)
         try {
-            await api.aiSettings.save(aiForm.baseUrl, aiForm.model, aiForm.apiKey)
-            toast.success('AI settings saved')
-            setAiHasKey(aiHasKey || aiForm.apiKey !== '')
-            setAiForm((f) => ({...f, apiKey: ''}))
+            if (editingAiId) {
+                await api.aiProfiles.update(editingAiId, aiForm.name, aiForm.baseUrl, aiForm.model, aiForm.apiKey)
+                toast.success('AI profile updated')
+            } else {
+                await api.aiProfiles.create(aiForm.name, aiForm.baseUrl, aiForm.model, aiForm.apiKey)
+                toast.success('AI profile created')
+            }
+            setAiSheetOpen(false)
+            refreshAiProfiles()
         } catch (err) {
             toast.error(`${err}`)
         } finally {
@@ -192,10 +267,33 @@ export function Connect() {
         }
     }
 
+    const removeAiProfile = async (p: AIProfile) => {
+        try {
+            await api.aiProfiles.remove(p.id)
+            toast.success(`AI profile "${p.name}" deleted`)
+            refreshAiProfiles()
+        } catch (err) {
+            toast.error(`${err}`)
+        }
+    }
+
+    const activateAiProfile = async (p: AIProfile) => {
+        setAiActivatingId(p.id)
+        try {
+            await api.aiProfiles.setActive(p.id)
+            toast.success(`"${p.name}" is now the active AI provider`)
+            refreshAiProfiles()
+        } catch (err) {
+            toast.error(`${err}`)
+        } finally {
+            setAiActivatingId(null)
+        }
+    }
+
     const fetchAiModels = async () => {
         setAiFetchingModels(true)
         try {
-            const models = await api.aiSettings.listModels(aiForm.baseUrl, aiForm.apiKey)
+            const models = await api.aiProfiles.listModels(editingAiId ?? '', aiForm.baseUrl, aiForm.apiKey)
             setAiModels(models)
             if (models.length === 0) {
                 toast.error('That endpoint returned no models')
@@ -216,7 +314,7 @@ export function Connect() {
         setAiTesting(true)
         setAiTestResult(null)
         try {
-            await api.aiSettings.test(aiForm.baseUrl, aiForm.model, aiForm.apiKey)
+            await api.aiProfiles.test(editingAiId ?? '', aiForm.baseUrl, aiForm.model, aiForm.apiKey)
             setAiTestResult({ok: true, message: 'Connection works'})
             toast.success('AI connection test passed')
         } catch (err) {
@@ -227,13 +325,13 @@ export function Connect() {
         }
     }
 
-    const checkAiUsage = async () => {
-        setAiUsageOpen(true)
+    const checkAiUsage = async (p: AIProfile) => {
+        setAiUsageProfile(p)
         setAiUsageLoading(true)
         setAiUsage(null)
         setAiUsageError(null)
         try {
-            const usage = await api.aiSettings.usage(aiForm.baseUrl, aiForm.model, aiForm.apiKey)
+            const usage = await api.aiProfiles.usage(p.id, p.baseUrl, p.model, '')
             setAiUsage(usage)
         } catch (err) {
             setAiUsageError(`${err}`)
@@ -285,6 +383,51 @@ export function Connect() {
         },
     ]
 
+    const aiColumns: DataTableColumn<AIProfile>[] = [
+        {
+            key: 'name',
+            header: 'Name',
+            render: (p) => (
+                <span className="inline-flex items-center gap-2 font-medium">
+                    {p.name}
+                    {p.active && <Badge className="gap-1"><CheckIcon className="size-3" /> Active</Badge>}
+                </span>
+            ),
+        },
+        {key: 'model', header: 'Model', render: (p) => <span className="text-muted-foreground">{p.model || '—'}</span>},
+        {
+            key: 'actions',
+            header: '',
+            className: 'text-right',
+            render: (p) => (
+                <div className="flex items-center justify-end gap-2">
+                    {!p.active && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={aiActivatingId === p.id}
+                            onClick={() => activateAiProfile(p)}
+                        >
+                            {aiActivatingId === p.id ? 'Switching…' : 'Use'}
+                        </Button>
+                    )}
+                    <Button variant="outline" size="sm" title="Recorded spend and provider rate limits" onClick={() => checkAiUsage(p)}>
+                        <GaugeIcon />
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => openAiEdit(p)}>Edit</Button>
+                    <ConfirmDialog
+                        trigger={<Button variant="destructive" size="sm">Delete</Button>}
+                        title={`Delete "${p.name}"?`}
+                        description="This removes the profile and its stored API key. This cannot be undone."
+                        confirmLabel="Delete"
+                        destructive
+                        onConfirm={() => removeAiProfile(p)}
+                    />
+                </div>
+            ),
+        },
+    ]
+
     return (
         <div className="flex flex-col">
             <PageHeader
@@ -312,103 +455,17 @@ export function Connect() {
                             <div className="flex size-7 items-center justify-center rounded-md bg-accent text-accent-foreground">
                                 <BotIcon className="size-4" />
                             </div>
-                            <CardTitle>AI provider</CardTitle>
+                            <CardTitle>AI providers</CardTitle>
                         </div>
                         <CardDescription>
-                            OpenAI-compatible endpoint used to generate tickets.
-                            {aiHasKey && <span className="ml-1 font-medium text-foreground">An API key is currently saved.</span>}
+                            Saved OpenAI-compatible profiles. The active one is used for every generation. Switch with one click when a provider is slow, throttled, or retired.
                         </CardDescription>
-                        <CardAction>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={!aiForm.baseUrl || !aiForm.model}
-                                onClick={checkAiUsage}
-                            >
-                                <GaugeIcon /> Usage
-                            </Button>
-                        </CardAction>
                     </CardHeader>
                     <CardContent className="grid gap-4">
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <FormField label="Base URL" htmlFor="ai-base-url">
-                                <Input
-                                    id="ai-base-url"
-                                    value={aiForm.baseUrl}
-                                    onChange={(e) => setAiForm((f) => ({...f, baseUrl: e.target.value}))}
-                                    placeholder="https://api.groq.com/openai/v1"
-                                />
-                            </FormField>
-                            <FormField
-                                label={
-                                    <span className="inline-flex items-center gap-1.5">
-                                        Model
-                                        <InfoTooltip>
-                                            Your API key doesn't determine which model runs. Each request has to name the exact model your provider expects.
-                                        </InfoTooltip>
-                                    </span>
-                                }
-                                htmlFor="ai-model"
-                            >
-                                {aiModels.length > 0 ? (
-                                    <Select
-                                        value={aiForm.model}
-                                        onValueChange={(v) => setAiForm((f) => ({...f, model: v as string}))}
-                                        items={Object.fromEntries(aiModels.map((m) => [m, m]))}
-                                    >
-                                        <SelectTrigger id="ai-model" className="w-full">
-                                            <SelectValue placeholder="Select a model" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {aiModels.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                                        </SelectContent>
-                                    </Select>
-                                ) : (
-                                    <Input
-                                        id="ai-model"
-                                        value={aiForm.model}
-                                        onChange={(e) => setAiForm((f) => ({...f, model: e.target.value}))}
-                                        placeholder="llama-3.1-8b-instant"
-                                    />
-                                )}
-                            </FormField>
-                        </div>
-                        <FormField label="API key" htmlFor="ai-key" description={aiHasKey ? 'Leave blank to keep the saved key.' : undefined}>
-                            <Input
-                                id="ai-key"
-                                type="password"
-                                value={aiForm.apiKey}
-                                onChange={(e) => setAiForm((f) => ({...f, apiKey: e.target.value}))}
-                                placeholder={aiHasKey ? '••••••••' : 'sk-...'}
-                            />
-                        </FormField>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Button onClick={saveAiSettings} disabled={aiSaving}>
-                                {aiSaving ? 'Saving…' : 'Save AI settings'}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                disabled={aiFetchingModels || !aiForm.baseUrl}
-                                onClick={fetchAiModels}
-                            >
-                                <RefreshCwIcon className={aiFetchingModels ? 'animate-spin' : ''} />
-                                {aiFetchingModels ? 'Fetching…' : 'Fetch models'}
-                            </Button>
-                            <Button
-                                variant="outline"
-                                disabled={aiTesting || !aiForm.baseUrl || !aiForm.model}
-                                onClick={testAiConnection}
-                            >
-                                <PlugZapIcon />
-                                {aiTesting ? 'Testing…' : 'Test connection'}
-                            </Button>
-                            {aiTestResult && (
-                                <span className="inline-flex items-center gap-1.5">
-                                    <StatusBadge status={aiTestResult.ok ? 'success' : 'failure'} />
-                                    {!aiTestResult.ok && <span className="text-xs text-destructive">{aiTestResult.message}</span>}
-                                </span>
-                            )}
-                        </div>
+                        <DataTable columns={aiColumns} rows={aiProfiles} rowKey={(p) => p.id} emptyMessage="No AI profiles yet." />
+                        <Button onClick={openAiCreate} className="justify-self-start">
+                            <PlusIcon /> Add profile
+                        </Button>
                     </CardContent>
                 </Card>
             </div>
@@ -463,26 +520,194 @@ export function Connect() {
                 </SheetContent>
             </Sheet>
 
-            <Dialog open={aiUsageOpen} onOpenChange={setAiUsageOpen}>
+            <Sheet open={aiSheetOpen} onOpenChange={setAiSheetOpen}>
+                <SheetContent>
+                    <SheetHeader>
+                        <SheetTitle>{editingAiId ? 'Edit AI profile' : 'Add AI profile'}</SheetTitle>
+                        <SheetDescription>
+                            {editingAiId
+                                ? "Update this provider profile's details."
+                                : 'Save an OpenAI-compatible provider you can switch to anytime.'}
+                        </SheetDescription>
+                    </SheetHeader>
+                    <SheetBody>
+                        <div className="grid gap-4">
+                            {!editingAiId && (
+                                <FormField label="Quick fill">
+                                    <div className="flex flex-wrap gap-2">
+                                        {AI_PRESETS.map((preset) => (
+                                            <Button
+                                                key={preset.label}
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => setAiForm((f) => ({
+                                                    ...f,
+                                                    name: f.name || preset.name,
+                                                    baseUrl: preset.baseUrl,
+                                                    model: preset.model,
+                                                }))}
+                                            >
+                                                {preset.label}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </FormField>
+                            )}
+                            <FormField label="Name" htmlFor="ai-name">
+                                <Input
+                                    id="ai-name"
+                                    value={aiForm.name}
+                                    onChange={(e) => setAiForm((f) => ({...f, name: e.target.value}))}
+                                    placeholder="Groq"
+                                />
+                            </FormField>
+                            <FormField label="Base URL" htmlFor="ai-base-url">
+                                <Input
+                                    id="ai-base-url"
+                                    value={aiForm.baseUrl}
+                                    onChange={(e) => setAiForm((f) => ({...f, baseUrl: e.target.value}))}
+                                    placeholder="https://api.groq.com/openai/v1"
+                                />
+                            </FormField>
+                            <FormField
+                                label={
+                                    <span className="inline-flex items-center gap-1.5">
+                                        Model
+                                        <InfoTooltip>
+                                            Your API key doesn't determine which model runs. Each request has to name the exact model your provider expects.
+                                        </InfoTooltip>
+                                    </span>
+                                }
+                                htmlFor="ai-model"
+                            >
+                                {aiModels.length > 0 ? (
+                                    <Select
+                                        value={aiForm.model}
+                                        onValueChange={(v) => setAiForm((f) => ({...f, model: v as string}))}
+                                        items={Object.fromEntries(aiModels.map((m) => [m, m]))}
+                                    >
+                                        <SelectTrigger id="ai-model" className="w-full">
+                                            <SelectValue placeholder="Select a model" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {aiModels.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                                        </SelectContent>
+                                    </Select>
+                                ) : (
+                                    <Input
+                                        id="ai-model"
+                                        value={aiForm.model}
+                                        onChange={(e) => setAiForm((f) => ({...f, model: e.target.value}))}
+                                        placeholder="openai/gpt-oss-120b"
+                                    />
+                                )}
+                            </FormField>
+                            <FormField
+                                label="API key"
+                                htmlFor="ai-key"
+                                description={aiHasKey ? 'Leave blank to keep the saved key.' : 'Leave blank only for endpoints that need no key (e.g. local Ollama).'}
+                            >
+                                <Input
+                                    id="ai-key"
+                                    type="password"
+                                    value={aiForm.apiKey}
+                                    onChange={(e) => setAiForm((f) => ({...f, apiKey: e.target.value}))}
+                                    placeholder={aiHasKey ? '••••••••' : 'sk-...'}
+                                />
+                            </FormField>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={aiFetchingModels || !aiForm.baseUrl}
+                                    onClick={fetchAiModels}
+                                >
+                                    <RefreshCwIcon className={aiFetchingModels ? 'animate-spin' : ''} />
+                                    {aiFetchingModels ? 'Fetching…' : 'Fetch models'}
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={aiTesting || !aiForm.baseUrl || !aiForm.model}
+                                    onClick={testAiConnection}
+                                >
+                                    <PlugZapIcon />
+                                    {aiTesting ? 'Testing…' : 'Test connection'}
+                                </Button>
+                                {aiTestResult && (
+                                    <span className="inline-flex items-center gap-1.5">
+                                        <StatusBadge status={aiTestResult.ok ? 'success' : 'failure'} />
+                                        {!aiTestResult.ok && <span className="text-xs text-destructive">{aiTestResult.message}</span>}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    </SheetBody>
+                    <SheetFooter>
+                        <Button onClick={saveAiProfile} disabled={aiSaving || !aiForm.name || !aiForm.baseUrl}>
+                            {aiSaving ? 'Saving…' : 'Save'}
+                        </Button>
+                    </SheetFooter>
+                </SheetContent>
+            </Sheet>
+
+            <Dialog open={aiUsageProfile !== null} onOpenChange={(open) => !open && setAiUsageProfile(null)}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>AI usage</DialogTitle>
-                        <DialogDescription>Rate-limit info reported by the provider's most recent response.</DialogDescription>
+                        <DialogTitle>AI usage: {aiUsageProfile?.name}</DialogTitle>
+                        <DialogDescription>
+                            What Ticketsmith has spent against this endpoint, plus the provider's current rate-limit snapshot.
+                        </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-4 py-2">
+                    <div className="grid gap-5 py-2">
                         {aiUsageLoading && <p className="text-sm text-muted-foreground">Checking…</p>}
                         {!aiUsageLoading && aiUsageError && (
                             <p className="text-sm text-destructive">Couldn't fetch usage: {aiUsageError}</p>
                         )}
-                        {!aiUsageLoading && !aiUsageError && aiUsage && !aiUsage.supported && (
-                            <p className="text-sm text-muted-foreground">
-                                The current configuration doesn't support this feature.
-                            </p>
-                        )}
-                        {!aiUsageLoading && !aiUsageError && aiUsage?.supported && (
+                        {!aiUsageLoading && !aiUsageError && aiUsage && (
                             <>
-                                <UsageBar label="Requests" remaining={aiUsage.requestsRemaining} limit={aiUsage.requestsLimit} />
-                                <UsageBar label="Tokens" remaining={aiUsage.tokensRemaining} limit={aiUsage.tokensLimit} />
+                                <div className="grid gap-2">
+                                    <h4 className="text-sm font-semibold">Recorded by Ticketsmith</h4>
+                                    <RecordedUsageTable summary={aiUsage.recorded} />
+                                    <p className="text-xs text-muted-foreground">
+                                        Counted from each AI response this app makes. Requests from other apps or the provider's own console aren't included.
+                                    </p>
+                                </div>
+                                <div className="grid gap-3">
+                                    <h4 className="text-sm font-semibold">Provider rate limits</h4>
+                                    {aiUsage.providerError && (
+                                        <p className="text-sm text-destructive">Couldn't reach the provider: {aiUsage.providerError}</p>
+                                    )}
+                                    {!aiUsage.providerError && !aiUsage.provider.supported && (
+                                        <p className="text-sm text-muted-foreground">
+                                            This provider doesn't report rate-limit headers.
+                                        </p>
+                                    )}
+                                    {!aiUsage.providerError && aiUsage.provider.supported && (
+                                        <>
+                                            {aiUsage.provider.requestsLimit > 0 && (
+                                                <UsageBar
+                                                    label="Requests"
+                                                    remaining={aiUsage.provider.requestsRemaining}
+                                                    limit={aiUsage.provider.requestsLimit}
+                                                    windowSeconds={aiUsage.provider.requestsWindowSeconds}
+                                                />
+                                            )}
+                                            {aiUsage.provider.tokensLimit > 0 && (
+                                                <UsageBar
+                                                    label="Tokens"
+                                                    remaining={aiUsage.provider.tokensRemaining}
+                                                    limit={aiUsage.provider.tokensLimit}
+                                                    windowSeconds={aiUsage.provider.tokensWindowSeconds}
+                                                />
+                                            )}
+                                            <p className="text-xs text-muted-foreground">
+                                                Short rolling-window throttles from the provider's response headers. They refill within seconds to minutes, so they reflect burst headroom, not how much you've consumed overall.
+                                            </p>
+                                        </>
+                                    )}
+                                </div>
                             </>
                         )}
                     </div>

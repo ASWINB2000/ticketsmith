@@ -62,7 +62,7 @@ export function QuickCapture({onSaved}: {onSaved?: () => void}) {
                         <ZapIcon className="size-4" /> Quick capture
                     </DialogTitle>
                     <DialogDescription>
-                        Saved to your Notes board — convert it into a ticket whenever you're ready.
+                        Saved to your Notes board. Convert it into a ticket whenever you're ready.
                     </DialogDescription>
                 </DialogHeader>
                 <Input

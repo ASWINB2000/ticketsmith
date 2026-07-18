@@ -19,11 +19,14 @@ export const api = {
         priorities: Go.GetTrackerPriorities,
         customFields: Go.GetTrackerCustomFields,
     },
-    aiSettings: {
-        get: Go.GetAISettings,
-        save: Go.SaveAISettings,
+    aiProfiles: {
+        list: Go.ListAIProfiles,
+        create: Go.CreateAIProfile,
+        update: Go.UpdateAIProfile,
+        remove: Go.DeleteAIProfile,
+        setActive: Go.SetActiveAIProfile,
         listModels: Go.ListAIModels,
-        test: Go.TestAISettings,
+        test: Go.TestAIProfile,
         usage: Go.AIUsage,
     },
     templates: {

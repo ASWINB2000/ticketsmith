@@ -58,3 +58,21 @@ export function GroqIcon({className}: { className?: string }) {
         </svg>
     )
 }
+
+export function GeminiIcon({className}: { className?: string }) {
+    return (
+        <svg viewBox="0 0 24 24" className={className} xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="gemini-brand-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#4796E3" />
+                    <stop offset="55%" stopColor="#7B7EE1" />
+                    <stop offset="100%" stopColor="#9177C7" />
+                </linearGradient>
+            </defs>
+            <path
+                fill="url(#gemini-brand-grad)"
+                d="M12 24A14.304 14.304 0 0 0 0 12 14.304 14.304 0 0 0 12 0a14.305 14.305 0 0 0 12 12 14.305 14.305 0 0 0-12 12"
+            />
+        </svg>
+    )
+}

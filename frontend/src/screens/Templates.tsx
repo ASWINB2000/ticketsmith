@@ -47,7 +47,7 @@ function TemplatePreview({form}: { form: TemplateFormState }) {
             </FormField>
             {form.fieldsSchema.length === 0 ? (
                 <p className="rounded-md border border-dashed p-3 text-center text-xs text-muted-foreground">
-                    No extraction fields yet — add some below to see them here.
+                    No extraction fields yet. Add some below to see them here.
                 </p>
             ) : (
                 form.fieldsSchema.map((f, i) => (
@@ -290,7 +290,7 @@ export function Templates() {
                     ) : tuneResult.editedCount === 0 ? (
                         <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                             You filed {tuneResult.sampleCount} ticket{tuneResult.sampleCount === 1 ? '' : 's'} with
-                            this template without editing the AI's output — the current instructions seem to be
+                            this template without editing the AI's output. The current instructions seem to be
                             working. Check back after you've made some manual edits.
                         </p>
                     ) : (
@@ -308,7 +308,7 @@ export function Templates() {
                             <FormField
                                 label="Suggested AI instructions"
                                 htmlFor="tune-instructions"
-                                description="Review and edit freely — applying replaces the template's current instructions."
+                                description="Review and edit freely. Applying replaces the template's current instructions."
                             >
                                 <Textarea
                                     id="tune-instructions"

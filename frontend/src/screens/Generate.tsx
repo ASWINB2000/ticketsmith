@@ -627,7 +627,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                             <CardTitle>Preview</CardTitle>
                             {isEdited && <Badge variant="secondary">Edited</Badge>}
                         </div>
-                        <CardDescription>Edit anything below, then create the ticket — tweak the Brief above and "Regenerate from brief" to start over, or edit a field here and "Regenerate from output" to elaborate on it in place.</CardDescription>
+                        <CardDescription>Edit anything below, then create the ticket. Tweak the Brief above and "Regenerate from brief" to start over, or edit a field here and "Regenerate from output" to elaborate on it in place.</CardDescription>
                     </CardHeader>
                     <CardContent className="grid gap-4">
                         <FormField label="Subject" htmlFor="preview-subject" required>

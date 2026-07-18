@@ -4,7 +4,7 @@ import {logs} from '../../wailsjs/go/models'
 import {Card, CardContent} from '@/components/ui/card'
 import {Tabs, TabsList, TabsTrigger, TabsContent} from '@/components/ui/tabs'
 import {PageHeader} from '@/components/Layout/PageHeader'
-import {OpenAIIcon, GroqIcon, GitHubIcon, OpenProjectIcon, JiraIcon, AzureDevOpsIcon} from '@/components/BrandIcons'
+import {OpenAIIcon, GroqIcon, GeminiIcon, OpenProjectIcon, JiraIcon, AzureDevOpsIcon} from '@/components/BrandIcons'
 import {cn} from '@/lib/utils'
 import {CircleHelpIcon, CheckCircle2Icon, CircleIcon, ChevronDownIcon} from 'lucide-react'
 import type {ComponentType} from 'react'
@@ -23,15 +23,15 @@ interface ProviderGuide {
 
 const PROVIDER_GUIDES: ProviderGuide[] = [
     {
-        value: 'github',
-        label: 'GitHub Models',
-        icon: GitHubIcon,
+        value: 'gemini',
+        label: 'Google Gemini',
+        icon: GeminiIcon,
         steps: [
-            <>At <Code>github.com/settings/tokens</Code>, generate a fine-grained personal access token with the <span className="font-medium text-foreground">Models</span> permission set to read-only (no repo or org access needed).</>,
-            <>In TicketSmith's AI provider card: Base URL <Code>https://models.github.ai/inference</Code>, Model e.g. <Code>gpt-4o</Code> (Llama, Phi, DeepSeek, and Mistral variants are also available), and paste the token into API key.</>,
-            <>GitHub's inference endpoint doesn't implement the model-listing call TicketSmith uses, so skip <span className="font-medium text-foreground">Fetch models</span> and type the model name in directly instead.</>,
-            <>TicketSmith automatically falls back to a minimal chat request when model listing isn't supported, so click <span className="font-medium text-foreground">Test connection</span> instead to validate the token and model.</>,
-            <>This is the same underlying account as signing in to OpenAI "via GitHub," but it's a distinct, free, separate API from OpenAI's own, with its own token and rate limits.</>,
+            <>Sign in at <Code>aistudio.google.com</Code> and click <span className="font-medium text-foreground">Get API key</span>, then <span className="font-medium text-foreground">Create API key</span>. Free, no credit card.</>,
+            <>Add an AI profile with the <span className="font-medium text-foreground">Gemini</span> quick-fill and paste the key.</>,
+            <>Click <span className="font-medium text-foreground">Fetch models</span> and pick the newest Flash model, e.g. <Code>gemini-2.5-flash</Code>.</>,
+            <>Free keys only cover Flash models. Pro models fail with a 429 error.</>,
+            <>Google may train on free-tier prompts, so keep sensitive details out.</>,
         ],
     },
     {
@@ -39,11 +39,9 @@ const PROVIDER_GUIDES: ProviderGuide[] = [
         label: 'OpenAI',
         icon: OpenAIIcon,
         steps: [
-            <>Sign in at <Code>platform.openai.com</Code>. Signing in "via GitHub" is just a login method, so it lands on the same account and the steps below are unaffected.</>,
-            <>Add a payment method under <Code>Settings → Billing</Code>. OpenAI won't let a key make requests without one on file.</>,
-            <>Go to <Code>Settings → API keys</Code> (or open <Code>{'platform.openai.com/api-keys'}</Code> directly) and click <span className="font-medium text-foreground">Create new secret key</span>.</>,
-            <>Copy the key immediately. OpenAI shows it once and never displays it again.</>,
-            <>In TicketSmith's AI provider card: Base URL <Code>https://api.openai.com/v1</Code>, Model e.g. <Code>gpt-4.1-mini</Code>, and paste the key into API key. Click <span className="font-medium text-foreground">Fetch models</span> to confirm it works, then Save.</>,
+            <>Sign in at <Code>platform.openai.com</Code> and add a payment method under <Code>Settings → Billing</Code>. Keys don't work without one.</>,
+            <>Open <Code>{'platform.openai.com/api-keys'}</Code> and click <span className="font-medium text-foreground">Create new secret key</span>. Copy it right away, it's shown only once.</>,
+            <>Add an AI profile with the <span className="font-medium text-foreground">OpenAI</span> quick-fill and paste the key.</>,
         ],
     },
     {
@@ -51,11 +49,10 @@ const PROVIDER_GUIDES: ProviderGuide[] = [
         label: 'Groq',
         icon: GroqIcon,
         steps: [
-            <>Sign in at <Code>console.groq.com</Code>.</>,
-            <>Go to <Code>API Keys</Code> in the left nav (or open <Code>{'console.groq.com/keys'}</Code> directly) and click <span className="font-medium text-foreground">Create API Key</span>.</>,
-            <>Copy the key. Like most providers, Groq only shows the full value once.</>,
-            <>In TicketSmith's AI provider card: Base URL <Code>https://api.groq.com/openai/v1</Code>, Model e.g. <Code>llama-3.3-70b-versatile</Code>, and paste the key into API key. Click <span className="font-medium text-foreground">Fetch models</span> to confirm it works, then Save.</>,
-            <>Groq's free tier is generous and fast, a good default if you don't already have OpenAI billing set up.</>,
+            <>Sign in at <Code>console.groq.com</Code>, open <Code>{'console.groq.com/keys'}</Code>, and click <span className="font-medium text-foreground">Create API Key</span>.</>,
+            <>Copy the key. Groq shows it only once.</>,
+            <>Add an AI profile with the <span className="font-medium text-foreground">Groq</span> quick-fill and paste the key.</>,
+            <>Keep the default model <Code>openai/gpt-oss-120b</Code>. It's the strongest writer Groq hosts.</>,
         ],
     },
 ]
@@ -179,7 +176,7 @@ export function Help() {
 
     useEffect(() => {
         api.connections.list().then((c) => setState((s) => ({...s, connections: c.length}))).catch(() => {})
-        api.aiSettings.get().then((a) => setState((s) => ({...s, aiConfigured: a.hasKey}))).catch(() => {})
+        api.aiProfiles.list().then((ps) => setState((s) => ({...s, aiConfigured: ps.length > 0}))).catch(() => {})
         api.templates.list().then((t) => setState((s) => ({...s, templates: t.length}))).catch(() => {})
         api.logs.list(new logs.Filter({action: 'create', status: 'success'})).then((l) => setState((s) => ({...s, tickets: l.length}))).catch(() => {})
     }, [])
@@ -212,8 +209,7 @@ export function Help() {
                             status={state.aiConfigured ? 'API key saved' : 'Not configured yet, go to Connect'}
                             icons={PROVIDER_GUIDES}
                         >
-                            <p>Any OpenAI-compatible endpoint works. OpenAI, Groq, or a local server.</p>
-                            <p>Add the base URL, key, and model, then click Test connection.</p>
+                            <p>Save each provider as a profile, then pick which one is active. Any OpenAI-compatible endpoint works.</p>
                             <ProviderGuideTabs guides={PROVIDER_GUIDES} />
                         </ChecklistItem>
 
@@ -224,7 +220,6 @@ export function Help() {
                         >
                             <p>The tracker type name must exactly match a type in your tracker (e.g. "Bug").</p>
                             <p>AI instructions tell the model how to write the subject and description.</p>
-                            <p>Once you've filed a few tickets, click <span className="font-medium text-foreground">Tune</span> on a template — TicketSmith studies the manual edits you made before filing and suggests improved instructions.</p>
                         </ChecklistItem>
 
                         <ChecklistItem
@@ -234,7 +229,6 @@ export function Help() {
                         >
                             <p>Pick a connection, project, and template, then paste your notes and click Generate.</p>
                             <p>Review the AI's output, edit anything, then click Create ticket.</p>
-                            <p>Tip: press <Code>Ctrl+T</Code> from anywhere — even outside TicketSmith — to pop a quick-capture window that saves straight to your Notes board. Note it's global, so it overrides Ctrl+T elsewhere (e.g. a browser's new-tab shortcut) while TicketSmith is running.</p>
                         </ChecklistItem>
                     </CardContent>
                 </Card>

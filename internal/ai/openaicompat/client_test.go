@@ -247,3 +247,50 @@ func TestSuggestInstructionsErrorsOnEmptySuggestion(t *testing.T) {
 		t.Fatal("expected error for empty suggestedInstructions, got nil")
 	}
 }
+
+func TestParseUsageReadsRateLimitAndWindowHeaders(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Ratelimit-Limit-Requests", "60000")
+	h.Set("X-Ratelimit-Remaining-Requests", "59999")
+	h.Set("X-Ratelimit-Limit-Tokens", "10000000")
+	h.Set("X-Ratelimit-Remaining-Tokens", "9999992")
+	h.Set("X-Ratelimit-Renewalperiod-Requests", "10")
+	h.Set("X-Ratelimit-Renewalperiod-Tokens", "60")
+
+	u := parseUsage(h)
+	if !u.Supported {
+		t.Fatal("Supported = false, want true")
+	}
+	if u.RequestsLimit != 60000 || u.RequestsRemaining != 59999 {
+		t.Errorf("requests = %d/%d", u.RequestsRemaining, u.RequestsLimit)
+	}
+	if u.TokensLimit != 10000000 || u.TokensRemaining != 9999992 {
+		t.Errorf("tokens = %d/%d", u.TokensRemaining, u.TokensLimit)
+	}
+	if u.RequestsWindowSeconds != 10 || u.TokensWindowSeconds != 60 {
+		t.Errorf("windows = %ds/%ds, want 10s/60s", u.RequestsWindowSeconds, u.TokensWindowSeconds)
+	}
+}
+
+func TestParseUsageUnsupportedWhenHeadersAbsent(t *testing.T) {
+	if u := parseUsage(http.Header{}); u.Supported {
+		t.Errorf("Supported = true for empty headers: %+v", u)
+	}
+}
+
+func TestChatCompletionReportsTokenUsageToHook(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}],"usage":{"prompt_tokens":12,"completion_tokens":3,"total_tokens":15}}`))
+	}))
+	defer srv.Close()
+
+	var got TokenUsage
+	c := New(srv.URL, "sk-test", "m").OnUsage(func(u TokenUsage) { got = u })
+	if _, err := c.Rephrase(context.Background(), []string{"note"}); err != nil {
+		t.Fatalf("Rephrase: %v", err)
+	}
+	if got.PromptTokens != 12 || got.CompletionTokens != 3 || got.TotalTokens != 15 {
+		t.Errorf("hook got %+v, want 12/3/15", got)
+	}
+}
