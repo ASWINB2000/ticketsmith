@@ -38,9 +38,9 @@ export function ConfirmDialog({
                 </DialogHeader>
                 <DialogFooter>
                     <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-                    <Button variant={destructive ? 'destructive' : 'default'} onClick={onConfirm}>
+                    <DialogClose render={<Button variant={destructive ? 'destructive' : 'default'} onClick={onConfirm} />}>
                         {confirmLabel}
-                    </Button>
+                    </DialogClose>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

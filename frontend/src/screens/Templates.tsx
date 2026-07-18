@@ -185,9 +185,17 @@ export function Templates() {
             className: 'text-right',
             render: (t) => (
                 <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openTune(t)} title="Analyze how you edit this template's generated tickets and suggest better AI instructions">
-                        <SparklesIcon /> Tune
-                    </Button>
+                    <ConfirmDialog
+                        trigger={
+                            <Button variant="outline" size="sm" title="Analyze how you edit this template's generated tickets and suggest better AI instructions">
+                                <SparklesIcon /> Tune
+                            </Button>
+                        }
+                        title="Sharpen this template with AI"
+                        description="Ticketsmith will study how you've hand-edited tickets filed from this template and suggest smarter AI instructions, using a few tokens from your provider along the way."
+                        confirmLabel="Got it, analyze"
+                        onConfirm={() => openTune(t)}
+                    />
                     <Button variant="outline" size="sm" onClick={() => openEdit(t)}>Edit</Button>
                     <ConfirmDialog
                         trigger={<Button variant="destructive" size="sm">Delete</Button>}

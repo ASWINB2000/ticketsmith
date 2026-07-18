@@ -87,12 +87,7 @@ func ListModels(ctx context.Context, baseURL, apiKey string) ([]string, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := string(body)
-		var apiErr apiErrorBody
-		if json.Unmarshal(body, &apiErr) == nil && apiErr.Error.Message != "" {
-			msg = apiErr.Error.Message
-		}
-		return nil, fmt.Errorf("ai: models: %s (status %d)", msg, resp.StatusCode)
+		return nil, fmt.Errorf("ai: models: %s (status %d)", apiErrorMessage(body), resp.StatusCode)
 	}
 
 	var parsed modelListResponse
@@ -220,6 +215,34 @@ type apiErrorBody struct {
 	} `json:"error"`
 }
 
+// apiErrorMessage extracts a human-readable message from a non-2xx response
+// body. Most OpenAI-compatible providers use the {"error": {"message": ...}}
+// envelope, but Gemini's OpenAI-compatibility endpoint returns its native
+// array-wrapped shape ([{"error": {...}}]) instead — at least for quota
+// errors — so try both before falling back to the raw body. The fallback is
+// truncated so an unrecognized/nested error shape from some other provider
+// can't dump hundreds of characters of raw JSON into the UI.
+func apiErrorMessage(body []byte) string {
+	var single apiErrorBody
+	if json.Unmarshal(body, &single) == nil && single.Error.Message != "" {
+		return single.Error.Message
+	}
+	var multi []apiErrorBody
+	if json.Unmarshal(body, &multi) == nil {
+		for _, e := range multi {
+			if e.Error.Message != "" {
+				return e.Error.Message
+			}
+		}
+	}
+	msg := strings.TrimSpace(string(body))
+	const maxLen = 300
+	if len(msg) > maxLen {
+		msg = msg[:maxLen] + "…"
+	}
+	return msg
+}
+
 // chatCompletion posts reqBody (with Model filled in) to /chat/completions
 // and returns the parsed response along with the raw response headers (so
 // callers like Usage can read rate-limit headers) — the request/response
@@ -251,12 +274,7 @@ func (c *Client) chatCompletion(ctx context.Context, reqBody chatRequest) (chatR
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := string(respBody)
-		var apiErr apiErrorBody
-		if json.Unmarshal(respBody, &apiErr) == nil && apiErr.Error.Message != "" {
-			msg = apiErr.Error.Message
-		}
-		return chatResponse{}, resp.Header, fmt.Errorf("ai: chat/completions: %s (status %d)", msg, resp.StatusCode)
+		return chatResponse{}, resp.Header, fmt.Errorf("ai: chat/completions: %s (status %d)", apiErrorMessage(respBody), resp.StatusCode)
 	}
 
 	var chatResp chatResponse

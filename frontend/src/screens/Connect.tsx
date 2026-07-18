@@ -642,7 +642,7 @@ export function Connect() {
                                 {aiTestResult && (
                                     <span className="inline-flex items-center gap-1.5">
                                         <StatusBadge status={aiTestResult.ok ? 'success' : 'failure'} />
-                                        {!aiTestResult.ok && <span className="text-xs text-destructive">{aiTestResult.message}</span>}
+                                        {!aiTestResult.ok && <span className="text-xs text-destructive break-words">{aiTestResult.message}</span>}
                                     </span>
                                 )}
                             </div>
@@ -664,10 +664,10 @@ export function Connect() {
                             What Ticketsmith has spent against this endpoint, plus the provider's current rate-limit snapshot.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid gap-5 py-2">
+                    <div className="grid min-w-0 gap-5 py-2">
                         {aiUsageLoading && <LoadingPlaceholder label="Checking…" />}
                         {!aiUsageLoading && aiUsageError && (
-                            <p className="text-sm text-destructive">Couldn't fetch usage: {aiUsageError}</p>
+                            <p className="min-w-0 text-sm text-destructive break-words">Couldn't fetch usage: {aiUsageError}</p>
                         )}
                         {!aiUsageLoading && !aiUsageError && aiUsage && (
                             <>
@@ -678,10 +678,10 @@ export function Connect() {
                                         Counted from each AI response this app makes. Requests from other apps or the provider's own console aren't included.
                                     </p>
                                 </div>
-                                <div className="grid gap-3">
+                                <div className="grid min-w-0 gap-3">
                                     <h4 className="text-sm font-semibold">Provider rate limits</h4>
                                     {aiUsage.providerError && (
-                                        <p className="text-sm text-destructive">Couldn't reach the provider: {aiUsage.providerError}</p>
+                                        <p className="min-w-0 text-sm text-destructive break-words">Couldn't reach the provider: {aiUsage.providerError}</p>
                                     )}
                                     {!aiUsage.providerError && !aiUsage.provider.supported && (
                                         <p className="text-sm text-muted-foreground">
