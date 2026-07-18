@@ -77,7 +77,19 @@ export function AnnouncementControl() {
                             {manifest.Title || 'Announcement'}
                         </DialogTitle>
                     </DialogHeader>
-                    <p className="text-sm text-muted-foreground">{manifest.Body}</p>
+                    {/* Body with a single line renders as a paragraph; multiple
+                        \n-separated lines render as bullets, so one announcement
+                        can cover several points without needing separate entries. */}
+                    {(() => {
+                        const lines = manifest.Body.split('\n').map((l) => l.trim()).filter(Boolean)
+                        return lines.length > 1 ? (
+                            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground marker:text-sidebar-primary">
+                                {lines.map((line, i) => <li key={i}>{line}</li>)}
+                            </ul>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">{manifest.Body}</p>
+                        )
+                    })()}
                     <DialogFooter>
                         {manifest.URL && (
                             <Button variant="outline" onClick={() => BrowserOpenURL(manifest.URL)}>

@@ -26,7 +26,7 @@ type Config struct {
 type Manifest struct {
 	ID    string // change this to push a new (or re-show an already-dismissed) announcement
 	Title string
-	Body  string
+	Body  string // one line renders as a paragraph; multiple \n-separated lines render as bullets
 	Level string // "info" or "warning"; anything else is treated as "info"
 	URL   string // optional "learn more" link
 }
