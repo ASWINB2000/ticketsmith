@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dialog'
 import {PageHeader} from '@/components/Layout/PageHeader'
 import {ConfirmDialog} from '@/components/ConfirmDialog'
-import {NotebookPenIcon, GitMergeIcon, SendIcon, Trash2Icon} from 'lucide-react'
+import {NotebookPenIcon, GitMergeIcon, SendIcon, Trash2Icon, Loader2Icon} from 'lucide-react'
 
 type Note = notesModel.Note
 
@@ -283,7 +283,7 @@ export function Notes({onConvertToGenerate}: NotesProps) {
                             className="min-h-40 resize-y flex-none"
                         />
                         <div>
-                            <Button onClick={save} disabled={saving || !newContent.trim()}>
+                            <Button onClick={save} disabled={saving || !newContent.trim()} loading={saving}>
                                 {saving ? 'Saving…' : 'Save'}
                             </Button>
                         </div>
@@ -299,8 +299,9 @@ export function Notes({onConvertToGenerate}: NotesProps) {
                                 ticket draft.
                             </p>
                         </div>
-                        <Button variant="outline" onClick={startMerge} disabled={selectedIds.size < 2 || merging}>
-                            <GitMergeIcon /> {merging ? 'Merging…' : `Merge${selectedIds.size >= 2 ? ` (${selectedIds.size})` : ''}`}
+                        <Button variant="outline" onClick={startMerge} disabled={selectedIds.size < 2 || merging} loading={merging}>
+                            {!merging && <GitMergeIcon />}
+                            {merging ? 'Merging…' : `Merge${selectedIds.size >= 2 ? ` (${selectedIds.size})` : ''}`}
                         </Button>
                     </div>
 
@@ -343,21 +344,28 @@ export function Notes({onConvertToGenerate}: NotesProps) {
                         placeholder="Title (optional)"
                         className="shrink-0"
                     />
-                    <NoteEditor
-                        key={mergeDraftVersion}
-                        content={mergeDraft}
-                        onChange={setMergeDraft}
-                        editable={!(merging && !mergeDraft)}
-                        placeholder={merging ? 'Combining notes…' : undefined}
-                        wrapperClassName="flex-1 min-h-0"
-                        className="min-h-0"
-                    />
+                    <div className="relative min-h-0 flex-1">
+                        <NoteEditor
+                            key={mergeDraftVersion}
+                            content={mergeDraft}
+                            onChange={setMergeDraft}
+                            editable={!(merging && !mergeDraft)}
+                            wrapperClassName="h-full"
+                            className="min-h-0"
+                        />
+                        {merging && !mergeDraft && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2.5 rounded-lg border border-input bg-background/80 text-sm text-muted-foreground backdrop-blur-sm">
+                                <Loader2Icon className="size-5 animate-spin text-muted-foreground/70" />
+                                Combining notes…
+                            </div>
+                        )}
+                    </div>
                     <DialogFooter>
                         <Button variant="ghost" onClick={cancelMerge}>Cancel</Button>
-                        <Button variant="outline" onClick={regenerateMerge} disabled={merging}>
+                        <Button variant="outline" onClick={regenerateMerge} disabled={merging} loading={merging}>
                             {merging ? 'Regenerating…' : 'Regenerate'}
                         </Button>
-                        <Button onClick={confirmMerge} disabled={confirmingMerge || merging || !mergeDraft.trim()}>
+                        <Button onClick={confirmMerge} disabled={confirmingMerge || merging || !mergeDraft.trim()} loading={confirmingMerge}>
                             {confirmingMerge ? 'Confirming…' : 'Confirm merge'}
                         </Button>
                     </DialogFooter>

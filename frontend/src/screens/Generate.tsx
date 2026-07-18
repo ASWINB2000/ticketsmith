@@ -16,7 +16,7 @@ import {PageHeader} from '@/components/Layout/PageHeader'
 import {Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetBody, SheetFooter, SheetClose} from '@/components/ui/sheet'
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter} from '@/components/ui/dialog'
 import {Badge} from '@/components/ui/badge'
-import {Wand2Icon, SettingsIcon, Undo2Icon, PaperclipIcon, XIcon, ImageIcon, VideoIcon, Trash2Icon} from 'lucide-react'
+import {Wand2Icon, SettingsIcon, Undo2Icon, PaperclipIcon, XIcon, ImageIcon, VideoIcon, Trash2Icon, Loader2Icon} from 'lucide-react'
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.bmp'])
 
@@ -613,7 +613,7 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                     </FormField>
 
                     <div className="flex gap-2">
-                        <Button onClick={generate} disabled={!canGenerate}>
+                        <Button onClick={generate} disabled={!canGenerate} loading={generating}>
                             {generating ? 'Generating…' : ticket ? 'Regenerate from brief' : 'Generate'}
                         </Button>
                     </div>
@@ -678,10 +678,10 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                         ))}
 
                         <div className="flex flex-wrap gap-2">
-                            <Button onClick={createTicket} disabled={!canCreate}>
+                            <Button onClick={createTicket} disabled={!canCreate} loading={creating}>
                                 {creating ? 'Creating…' : 'Create ticket'}
                             </Button>
-                            <Button variant="outline" onClick={refine} disabled={!canRefine} title="Elaborate on this draft as-is, including any edits you've made, without starting over">
+                            <Button variant="outline" onClick={refine} disabled={!canRefine} loading={refining} title="Elaborate on this draft as-is, including any edits you've made, without starting over">
                                 {refining ? 'Refining…' : 'Regenerate from output'}
                             </Button>
                             {isEdited && (
@@ -700,7 +700,11 @@ export function Generate({active, prefill, onPrefillConsumed}: GenerateProps) {
                                 >
                                     {createdTicket.url}
                                 </button>
-                                {uploadingAttachments && <span className="ml-2 text-muted-foreground">Attaching files…</span>}
+                                {uploadingAttachments && (
+                                    <span className="ml-2 inline-flex items-center gap-1.5 text-muted-foreground">
+                                        <Loader2Icon className="size-3.5 animate-spin" /> Attaching files…
+                                    </span>
+                                )}
                             </div>
                         )}
                     </CardContent>

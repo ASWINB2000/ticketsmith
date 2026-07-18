@@ -83,7 +83,7 @@ export function QuickCapture({onSaved}: {onSaved?: () => void}) {
                 />
                 <DialogFooter>
                     <Button variant="ghost" onClick={() => setOpen(false)}>Discard</Button>
-                    <Button onClick={save} disabled={saving || !content.trim()}>
+                    <Button onClick={save} disabled={saving || !content.trim()} loading={saving}>
                         {saving ? 'Saving…' : 'Save note'}
                     </Button>
                 </DialogFooter>

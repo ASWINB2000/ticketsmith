@@ -19,6 +19,7 @@ import {Badge} from '@/components/ui/badge'
 import {cn} from '@/lib/utils'
 import {PlusIcon, BotIcon, Plug2Icon, RefreshCwIcon, PlugZapIcon, GaugeIcon, CheckIcon} from 'lucide-react'
 import {JiraIcon, AzureDevOpsIcon, OpenProjectIcon} from '@/components/BrandIcons'
+import {LoadingPlaceholder} from '@/components/LoadingPlaceholder'
 import {main, ai, aiusage} from '../../wailsjs/go/models'
 import type {ComponentType} from 'react'
 
@@ -75,7 +76,7 @@ type AIProfile = ai.Profile
 // saved until the user does.
 const AI_PRESETS: {label: string; name: string; baseUrl: string; model: string}[] = [
     {label: 'Groq', name: 'Groq', baseUrl: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b'},
-    {label: 'Gemini', name: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-flash'},
+    {label: 'Gemini', name: 'Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash'},
     {label: 'OpenAI', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1-mini'},
     {label: 'Ollama (local)', name: 'Local Ollama', baseUrl: 'http://localhost:11434/v1', model: ''},
 ]
@@ -365,7 +366,7 @@ export function Connect() {
                 return (
                     <div className="flex items-center justify-end gap-2">
                         {result && <StatusBadge status={result.ok ? 'success' : 'failure'} />}
-                        <Button variant="outline" size="sm" disabled={testingId === c.id} onClick={() => test(c)}>
+                        <Button variant="outline" size="sm" disabled={testingId === c.id} loading={testingId === c.id} onClick={() => test(c)}>
                             {testingId === c.id ? 'Testing…' : 'Test'}
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => openEdit(c)}>Edit</Button>
@@ -406,6 +407,7 @@ export function Connect() {
                             variant="outline"
                             size="sm"
                             disabled={aiActivatingId === p.id}
+                            loading={aiActivatingId === p.id}
                             onClick={() => activateAiProfile(p)}
                         >
                             {aiActivatingId === p.id ? 'Switching…' : 'Use'}
@@ -515,7 +517,7 @@ export function Connect() {
                         </div>
                     </SheetBody>
                     <SheetFooter>
-                        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+                        <Button onClick={save} disabled={saving} loading={saving}>{saving ? 'Saving…' : 'Save'}</Button>
                     </SheetFooter>
                 </SheetContent>
             </Sheet>
@@ -621,18 +623,20 @@ export function Connect() {
                                     variant="outline"
                                     size="sm"
                                     disabled={aiFetchingModels || !aiForm.baseUrl}
+                                    loading={aiFetchingModels}
                                     onClick={fetchAiModels}
                                 >
-                                    <RefreshCwIcon className={aiFetchingModels ? 'animate-spin' : ''} />
+                                    {!aiFetchingModels && <RefreshCwIcon />}
                                     {aiFetchingModels ? 'Fetching…' : 'Fetch models'}
                                 </Button>
                                 <Button
                                     variant="outline"
                                     size="sm"
                                     disabled={aiTesting || !aiForm.baseUrl || !aiForm.model}
+                                    loading={aiTesting}
                                     onClick={testAiConnection}
                                 >
-                                    <PlugZapIcon />
+                                    {!aiTesting && <PlugZapIcon />}
                                     {aiTesting ? 'Testing…' : 'Test connection'}
                                 </Button>
                                 {aiTestResult && (
@@ -645,7 +649,7 @@ export function Connect() {
                         </div>
                     </SheetBody>
                     <SheetFooter>
-                        <Button onClick={saveAiProfile} disabled={aiSaving || !aiForm.name || !aiForm.baseUrl}>
+                        <Button onClick={saveAiProfile} disabled={aiSaving || !aiForm.name || !aiForm.baseUrl} loading={aiSaving}>
                             {aiSaving ? 'Saving…' : 'Save'}
                         </Button>
                     </SheetFooter>
@@ -661,7 +665,7 @@ export function Connect() {
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-5 py-2">
-                        {aiUsageLoading && <p className="text-sm text-muted-foreground">Checking…</p>}
+                        {aiUsageLoading && <LoadingPlaceholder label="Checking…" />}
                         {!aiUsageLoading && aiUsageError && (
                             <p className="text-sm text-destructive">Couldn't fetch usage: {aiUsageError}</p>
                         )}

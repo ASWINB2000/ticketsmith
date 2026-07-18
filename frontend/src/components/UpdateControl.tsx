@@ -163,7 +163,7 @@ export function UpdateControl() {
                     </p>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setPhase('idle')} disabled={installing}>Later</Button>
-                        <Button onClick={handleInstall} disabled={installing}>
+                        <Button onClick={handleInstall} disabled={installing} loading={installing}>
                             {installing ? 'Restarting…' : 'Install & Restart'}
                         </Button>
                     </DialogFooter>

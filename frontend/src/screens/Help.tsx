@@ -29,7 +29,7 @@ const PROVIDER_GUIDES: ProviderGuide[] = [
         steps: [
             <>Sign in at <Code>aistudio.google.com</Code> and click <span className="font-medium text-foreground">Get API key</span>, then <span className="font-medium text-foreground">Create API key</span>. Free, no credit card.</>,
             <>Add an AI profile with the <span className="font-medium text-foreground">Gemini</span> quick-fill and paste the key.</>,
-            <>Click <span className="font-medium text-foreground">Fetch models</span> and pick the newest Flash model, e.g. <Code>gemini-2.5-flash</Code>.</>,
+            <>Click <span className="font-medium text-foreground">Fetch models</span> and pick the newest Flash model, e.g. <Code>gemini-3.5-flash</Code>.</>,
             <>Free keys only cover Flash models. Pro models fail with a 429 error.</>,
             <>Google may train on free-tier prompts, so keep sensitive details out.</>,
         ],

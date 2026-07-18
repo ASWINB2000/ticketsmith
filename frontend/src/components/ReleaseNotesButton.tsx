@@ -9,6 +9,7 @@ import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter} from '@/
 import {Button} from '@/components/ui/button'
 import {ReleaseNotes} from '@/components/ReleaseNotes'
 import {GitHubIcon} from '@/components/BrandIcons'
+import {LoadingPlaceholder} from '@/components/LoadingPlaceholder'
 
 export function ReleaseNotesButton({version}: { version: string }) {
     const [open, setOpen] = useState(false)
@@ -77,7 +78,7 @@ export function ReleaseNotesButton({version}: { version: string }) {
                         )}
                     </DialogHeader>
                     {loading ? (
-                        <p className="text-sm text-muted-foreground">Loading…</p>
+                        <LoadingPlaceholder label="Loading release notes…" />
                     ) : info?.ReleaseNotes ? (
                         <div className="max-h-72 overflow-y-auto overflow-x-hidden rounded-lg border bg-muted/30 p-3">
                             <ReleaseNotes markdown={info.ReleaseNotes} />

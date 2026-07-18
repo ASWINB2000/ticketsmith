@@ -14,6 +14,7 @@ import {JsonFieldsEditor} from '@/components/JsonFieldsEditor'
 import {PageHeader} from '@/components/Layout/PageHeader'
 import {Badge} from '@/components/ui/badge'
 import {PlusIcon, EyeIcon, LayoutTemplateIcon, SparklesIcon} from 'lucide-react'
+import {LoadingPlaceholder} from '@/components/LoadingPlaceholder'
 
 type Template = templates.Template
 type Field = templates.Field
@@ -270,7 +271,7 @@ export function Templates() {
                     </div>
                     <DialogFooter>
                         <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-                        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+                        <Button onClick={save} disabled={saving} loading={saving}>{saving ? 'Saving…' : 'Save'}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
@@ -284,9 +285,7 @@ export function Templates() {
                         </DialogDescription>
                     </DialogHeader>
                     {!tuneResult ? (
-                        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                            Analyzing your recent edits…
-                        </p>
+                        <LoadingPlaceholder label="Analyzing your recent edits…" />
                     ) : tuneResult.editedCount === 0 ? (
                         <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
                             You filed {tuneResult.sampleCount} ticket{tuneResult.sampleCount === 1 ? '' : 's'} with
@@ -324,7 +323,7 @@ export function Templates() {
                             {tuneResult && tuneResult.editedCount > 0 ? 'Cancel' : 'Close'}
                         </DialogClose>
                         {tuneResult && tuneResult.editedCount > 0 && (
-                            <Button onClick={applyTune} disabled={applyingTune || !tuneInstructions.trim()}>
+                            <Button onClick={applyTune} disabled={applyingTune || !tuneInstructions.trim()} loading={applyingTune}>
                                 {applyingTune ? 'Applying…' : 'Apply instructions'}
                             </Button>
                         )}
