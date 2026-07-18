@@ -3,6 +3,7 @@ import {cn} from '@/lib/utils'
 import {Wand2Icon, LayoutTemplateIcon, Plug2Icon, ScrollTextIcon, CircleHelpIcon, NotebookPenIcon} from 'lucide-react'
 import logo from '@/assets/images/logo-universal.png'
 import {UpdateControl} from '@/components/UpdateControl'
+import {AnnouncementControl} from '@/components/AnnouncementControl'
 import {ReleaseNotesButton} from '@/components/ReleaseNotesButton'
 import {Version} from '../../../wailsjs/go/main/App'
 
@@ -70,7 +71,8 @@ export function Sidebar({active, onChange}: SidebarProps) {
                 })}
             </nav>
 
-            <div className="border-t border-sidebar-border px-4 py-3">
+            <div className="flex flex-col gap-1.5 border-t border-sidebar-border px-4 py-3">
+                <AnnouncementControl />
                 <UpdateControl />
             </div>
         </div>
