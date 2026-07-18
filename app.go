@@ -22,6 +22,7 @@ import (
 	"ticketsmith/internal/ai"
 	"ticketsmith/internal/ai/openaicompat"
 	"ticketsmith/internal/aiusage"
+	"ticketsmith/internal/announcement"
 	"ticketsmith/internal/connections"
 	"ticketsmith/internal/db"
 	"ticketsmith/internal/logs"
@@ -42,13 +43,14 @@ type App struct {
 	db      *sql.DB
 	version string
 
-	connectionsStore *connections.Store
-	templatesStore   *templates.Store
-	logsStore        *logs.Store
-	aiProfilesStore  *ai.ProfileStore
-	aiUsageStore     *aiusage.Store
-	prefsStore       *prefs.Store
-	notesStore       *notes.Store
+	connectionsStore  *connections.Store
+	templatesStore    *templates.Store
+	logsStore         *logs.Store
+	aiProfilesStore   *ai.ProfileStore
+	aiUsageStore      *aiusage.Store
+	prefsStore        *prefs.Store
+	notesStore        *notes.Store
+	announcementStore *announcement.Store
 
 	trackerMu    sync.Mutex
 	trackerCache map[string]tracker.Tracker
@@ -96,6 +98,7 @@ func (a *App) startup(ctx context.Context) {
 	a.aiUsageStore = aiusage.NewStore(sqlDB)
 	a.prefsStore = prefs.NewStore(sqlDB)
 	a.notesStore = notes.NewStore(sqlDB)
+	a.announcementStore = announcement.NewStore(sqlDB)
 	a.trackerCache = map[string]tracker.Tracker{}
 
 	a.seedDefaultConnection()
@@ -108,6 +111,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	go a.checkForUpdatesOnStartup()
+	go a.checkAnnouncementOnStartup()
 
 	// Synchronous (Register is a quick call; the OS-level listening runs in
 	// its own goroutine) so quickCaptureShortcut is settled before the
@@ -211,6 +215,52 @@ func updateChannel() string {
 		return "osx"
 	}
 	return "win"
+}
+
+// ----- Announcement banner -----
+
+// announcementManifestURL points at a small JSON file in this repo — editing
+// and pushing it is enough to change what users see, with no app release
+// required. See internal/announcement.Manifest for the expected shape.
+const announcementManifestURL = "https://raw.githubusercontent.com/ASWINB2000/ticketsmith/main/announcements.json"
+
+// checkAnnouncementOnStartup checks the remote announcement manifest in the
+// background on every launch, mirroring checkForUpdatesOnStartup. It never
+// blocks startup, and if it finds an announcement the user hasn't already
+// dismissed, it pushes the Manifest via an "announcement:available" event
+// for the frontend to show as a dismissible banner. Silent if there's
+// nothing new or the check fails (e.g. offline) — an announcement is never
+// worth interrupting startup or nagging the user with an error toast over.
+func (a *App) checkAnnouncementOnStartup() {
+	manifest, err := a.CheckAnnouncement()
+	if err != nil {
+		log.Printf("ticketsmith: announcement check failed: %v", err)
+		return
+	}
+	if manifest != nil {
+		wailsruntime.EventsEmit(a.ctx, "announcement:available", manifest)
+	}
+}
+
+// CheckAnnouncement is bound for the frontend to re-check on demand (e.g. if
+// the "announcement:available" event fired before the window's listener was
+// mounted). Returns nil if there's nothing new since the user's last
+// dismissal.
+func (a *App) CheckAnnouncement() (*announcement.Manifest, error) {
+	lastDismissed, err := a.announcementStore.GetLastDismissedID(a.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("app: get last dismissed announcement: %w", err)
+	}
+	cfg := announcement.Config{URL: announcementManifestURL}
+	return announcement.Check(a.ctx, cfg, lastDismissed)
+}
+
+// DismissAnnouncement records id as seen so it won't be surfaced again, even
+// across restarts. Bumping the manifest's ID is how a new announcement (or a
+// re-notify of the same message) reaches users who already dismissed an
+// older one.
+func (a *App) DismissAnnouncement(id string) error {
+	return a.announcementStore.SaveLastDismissedID(a.ctx, id)
 }
 
 // seedDefaultConnection auto-creates a "Default" connection from .env

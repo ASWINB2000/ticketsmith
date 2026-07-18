@@ -1,0 +1,7 @@
+{
+  "ID": "2026-07-github-models-sunset",
+  "Title": "GitHub Models is being sunset",
+  "Body": "GitHub Models will no longer be available. Switch your AI provider to Gemini in the Connect screen to avoid interruption.",
+  "Level": "warning",
+  "URL": "https://ai.google.dev/gemini-api/docs"
+}

@@ -65,5 +65,9 @@ export const api = {
     releaseNotes: {
         latest: Go.GetLatestReleaseNotes,
     },
+    announcement: {
+        check: Go.CheckAnnouncement,
+        dismiss: Go.DismissAnnouncement,
+    },
     windowReady: Go.WindowReady,
 }

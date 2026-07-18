@@ -92,6 +92,12 @@ CREATE TABLE IF NOT EXISTS notes (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS announcement_prefs (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  last_dismissed_id TEXT NOT NULL DEFAULT '',
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 `
 
 // DefaultPath returns the OS-appropriate path to the Ticketsmith SQLite
